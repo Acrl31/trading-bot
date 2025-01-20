@@ -82,7 +82,7 @@ print("Tuning hyperparameters with RandomizedSearchCV...")
 random_search = RandomizedSearchCV(estimator=RandomForestClassifier(random_state=42),
                                    param_distributions=param_dist,
                                    n_iter=10,  # Limit the number of iterations for faster results
-                                   cv=3,  # Use 3-fold cross-validation
+                                   cv=100,  # Use 3-fold cross-validation
                                    verbose=2,
                                    n_jobs=-1,  # Use all CPU cores
                                    random_state=42)
