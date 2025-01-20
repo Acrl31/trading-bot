@@ -6,7 +6,6 @@ from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 import joblib
 from sklearn.preprocessing import StandardScaler
-from sklearn.utils.class_weight import compute_class_weight
 
 # Directory containing the data files
 DATA_DIR = "data"
@@ -54,21 +53,31 @@ def compute_macd(data, short_window=12, long_window=26):
 X_combined = []
 y_combined = []
 
+print("Processing data...")
+
 for instrument in INSTRUMENTS:
     file_path = os.path.join(DATA_DIR, f"{instrument}_data.csv")
     if os.path.exists(file_path):
+        print(f"Processing data for {instrument}...")
         X, y = preprocess_data(file_path)
         X_combined.append(X)
         y_combined.append(y)
+    else:
+        print(f"Data file for {instrument} not found. Skipping...")
 
 # Combine all data into single datasets
 X_combined = np.concatenate(X_combined, axis=0)
 y_combined = np.concatenate(y_combined, axis=0)
 
+print(f"X_combined shape: {X_combined.shape}")
+print(f"y_combined shape: {y_combined.shape}")
+
 # Train-test split
+print("Splitting the data into train and test sets...")
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
 # Hyperparameter tuning with RandomizedSearchCV
+print("Performing hyperparameter tuning with RandomizedSearchCV...")
 param_dist = {
     'n_estimators': [100, 200, 300],
     'max_depth': [10, 20, 30, None],
@@ -83,6 +92,8 @@ grid_search.fit(X_train, y_train)
 
 # Get the best estimator
 model = grid_search.best_estimator_
+
+print(f"Best parameters from RandomizedSearchCV: {grid_search.best_params_}")
 
 # Evaluate the model
 y_pred = model.predict(X_test)
@@ -101,3 +112,5 @@ if not os.path.exists(MODEL_DIR):
 
 model_file_path = os.path.join(MODEL_DIR, "trading_model.pkl")
 joblib.dump(model, model_file_path)
+
+print(f"Model saved to {model_file_path}")
