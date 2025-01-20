@@ -17,20 +17,22 @@ def preprocess_data(file_path):
     """
     data = pd.read_csv(file_path)
     
-    # Feature engineering
+    # Feature engineering (example features)
     data['SMA_5'] = data['close'].rolling(window=5).mean()
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
-    data['Volatility'] = data['close'].rolling(window=5).std()  # Rolling standard deviation for volatility
-    data['RSI'] = 100 - (100 / (1 + (data['close'].pct_change().apply(lambda x: max(x, 0)).rolling(window=14).sum()) /
-                               (data['close'].pct_change().apply(lambda x: max(-x, 0)).rolling(window=14).sum())))
+    
+    # Set 'Target' with the next day's price, using the last row for consistency
     data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
+    
+    # Handle last row case where shift would result in NaN
+    data['Target'].iloc[-1] = 0  # Or another logic based on your requirements (e.g., 1, -1, or 0)
 
-    # Drop NaN values created by rolling windows
+    # Drop NaN values created by rolling windows or shifts
     data.dropna(inplace=True)
     
     # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 'RSI']]
+    X = data[['SMA_5', 'SMA_20', 'Price_Change']]
     y = data['Target']
     
     return X, y
@@ -61,21 +63,22 @@ print(f"y_combined shape: {y_combined.shape}")
 print("Splitting the data into train and test sets...")
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Expanded parameter grid for GridSearchCV
+# Simplified parameter grid for testing
 param_grid = {
-    'n_estimators': [50, 100, 200, 300],
-    'max_depth': [10, 20, 30, 40],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4],
-    'class_weight': ['balanced', None]  # Adding class weight to handle imbalanced data
+    'n_estimators': [50],
+    'max_depth': [10],
+    'min_samples_split': [2],
+    'min_samples_leaf': [1],
+    'class_weight': ['balanced']  # Adding class weight to handle imbalanced data
 }
 
-# GridSearchCV setup
-print("Tuning hyperparameters with GridSearchCV...")
+# GridSearchCV with increased verbosity and parallel execution
 grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), 
                            param_grid=param_grid, 
                            cv=3, 
+                           verbose=2, 
                            n_jobs=-1)  # Use all CPU cores
+print("Tuning hyperparameters with GridSearchCV...")
 
 # Perform GridSearchCV
 grid_search.fit(X_train, y_train)
@@ -85,7 +88,6 @@ print(f"Best parameters: {grid_search.best_params_}")
 model = grid_search.best_estimator_
 
 # Cross-validation to evaluate model performance
-print("Performing cross-validation...")
 cross_val_scores = cross_val_score(model, X_combined, y_combined, cv=5)
 print(f"Cross-validation scores: {cross_val_scores}")
 print(f"Mean score: {cross_val_scores.mean()}")
@@ -95,10 +97,7 @@ print("Training the model...")
 model.fit(X_train, y_train)
 
 # Evaluate the model
-print("Evaluating model performance...")
 y_pred = model.predict(X_test)
-
-# Model performance metrics
 print("Model Performance:")
 print(classification_report(y_test, y_pred))
 print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
