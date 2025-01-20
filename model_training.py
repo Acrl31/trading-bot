@@ -90,6 +90,7 @@ print(f"Best parameters: {grid_search.best_params_}")
 model = grid_search.best_estimator_
 
 # Cross-validation to evaluate model performance
+print("Performing cross-validation to evaluate model...")
 cross_val_scores = cross_val_score(model, X_combined, y_combined, cv=5)
 print(f"Cross-validation scores: {cross_val_scores}")
 print(f"Mean score: {cross_val_scores.mean()}")
@@ -99,6 +100,7 @@ print("Training the model...")
 model.fit(X_train, y_train)
 
 # Evaluate the model
+print("Evaluating the model...")
 y_pred = model.predict(X_test)
 print("Model Performance:")
 print(classification_report(y_test, y_pred))
