@@ -39,7 +39,7 @@ def fetch_historical_data(instrument, start, end, granularity):
     # Parse the response into a DataFrame
     data = [
         {
-            "time": candle["time"],
+            "timestamp": candle["time"],
             "open": float(candle["mid"]["o"]),
             "high": float(candle["mid"]["h"]),
             "low": float(candle["mid"]["l"]),
