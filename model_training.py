@@ -22,17 +22,13 @@ def preprocess_data(file_path):
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
     data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
-    
+
     # Handle the last row case where shift would result in NaN
-    data.loc[data.index[-1], 'Target'] = 0  # Or another logic based on your requirements (e.g., 1, -1, or 0)
+    data.loc[data.index[-1], 'Target'] = data['Target'].iloc[-2]  # Use previous value (1 or -1)
 
     # Drop NaN values created by rolling windows and percentage change
     data.dropna(inplace=True)
     
-    # Ensure the features are correct
-    if 'SMA_5' not in data or 'SMA_20' not in data or 'Price_Change' not in data:
-        raise ValueError("One or more required features are missing")
-
     # Features and labels
     X = data[['SMA_5', 'SMA_20', 'Price_Change']]
     y = data['Target']
@@ -61,11 +57,11 @@ y_combined = pd.concat(y_combined, axis=0)
 print(f"X_combined shape: {X_combined.shape}")
 print(f"y_combined shape: {y_combined.shape}")
 
-# Train-test split
+# Splitting the data into train and test sets
 print("Splitting the data into train and test sets...")
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Simplified parameter grid for testing
+# Hyperparameter tuning with GridSearchCV
 param_grid = {
     'n_estimators': [50],
     'max_depth': [10],
@@ -74,12 +70,7 @@ param_grid = {
     'class_weight': ['balanced']  # Adding class weight to handle imbalanced data
 }
 
-# GridSearchCV with increased verbosity and parallel execution
-grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), 
-                           param_grid=param_grid, 
-                           cv=3, 
-                           verbose=2, 
-                           n_jobs=-1)  # Use all CPU cores
+grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), param_grid=param_grid, cv=3, n_jobs=-1)
 print("Tuning hyperparameters with GridSearchCV...")
 
 # Perform GridSearchCV
@@ -90,7 +81,6 @@ print(f"Best parameters: {grid_search.best_params_}")
 model = grid_search.best_estimator_
 
 # Cross-validation to evaluate model performance
-print("Performing cross-validation to evaluate model...")
 cross_val_scores = cross_val_score(model, X_combined, y_combined, cv=5)
 print(f"Cross-validation scores: {cross_val_scores}")
 print(f"Mean score: {cross_val_scores.mean()}")
@@ -100,14 +90,13 @@ print("Training the model...")
 model.fit(X_train, y_train)
 
 # Evaluate the model
-print("Evaluating the model...")
 y_pred = model.predict(X_test)
 print("Model Performance:")
 print(classification_report(y_test, y_pred))
 print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
-print(f"Precision: {precision_score(y_test, y_pred)}")
-print(f"Recall: {recall_score(y_test, y_pred)}")
-print(f"F1-Score: {f1_score(y_test, y_pred)}")
+print(f"Precision: {precision_score(y_test, y_pred, average='binary')}")
+print(f"Recall: {recall_score(y_test, y_pred, average='binary')}")
+print(f"F1-Score: {f1_score(y_test, y_pred, average='binary')}")
 
 # Save the trained model
 MODEL_DIR = "models"
