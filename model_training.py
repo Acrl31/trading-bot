@@ -12,10 +12,43 @@ from concurrent.futures import ProcessPoolExecutor
 DATA_DIR = "data"
 INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
 
+# Function to compute Relative Strength Index (RSI)
+def compute_rsi(series, window=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+# Function to compute Moving Average Convergence Divergence (MACD)
+def compute_macd(series, fast=12, slow=26, signal=9):
+    fast_ema = series.ewm(span=fast, min_periods=fast).mean()
+    slow_ema = series.ewm(span=slow, min_periods=slow).mean()
+    macd = fast_ema - slow_ema
+    signal_line = macd.ewm(span=signal, min_periods=signal).mean()
+    return macd, signal_line
+
+# Function to compute Bollinger Bands
+def compute_bollinger_bands(series, window=20, num_std=2):
+    sma = series.rolling(window=window).mean()
+    rolling_std = series.rolling(window=window).std()
+    upper_band = sma + (rolling_std * num_std)
+    lower_band = sma - (rolling_std * num_std)
+    return upper_band, lower_band
+
+# Function to compute Average True Range (ATR)
+def compute_atr(high, low, close, window=14):
+    tr = pd.concat([high - low, 
+                    abs(high - close.shift()), 
+                    abs(low - close.shift())], axis=1)
+    atr = tr.max(axis=1).rolling(window=window).mean()
+    return atr
+
 # Function to preprocess the data
 def preprocess_data(file_path):
     """
-    Load and preprocess data for model training.
+    Load and preprocess data for model training with custom technical indicators.
     """
     data = pd.read_csv(file_path)
     
@@ -25,6 +58,12 @@ def preprocess_data(file_path):
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
     data['Volatility'] = data['high'] - data['low']  # Intraday volatility
     data['Volume_Change'] = data['volume'].pct_change()  # Percent change in volume
+
+    # Calculate RSI, MACD, Bollinger Bands, and ATR
+    data['RSI'] = compute_rsi(data['close'], window=14)
+    data['MACD'], data['MACD_Signal'] = compute_macd(data['close'], fast=12, slow=26, signal=9)
+    data['Bollinger_Upper'], data['Bollinger_Lower'] = compute_bollinger_bands(data['close'], window=20, num_std=2)
+    data['ATR'] = compute_atr(data['high'], data['low'], data['close'], window=14)
 
     # Lag features to account for historical data
     data['Lag_Close_1'] = data['close'].shift(1)
@@ -39,7 +78,9 @@ def preprocess_data(file_path):
 
     # Features and labels
     X = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 
-              'Volume_Change', 'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1']]
+              'Volume_Change', 'RSI', 'MACD', 'MACD_Signal', 
+              'Bollinger_Upper', 'Bollinger_Lower', 'ATR', 
+              'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1']]
     y = data['Target']
     
     return X, y
