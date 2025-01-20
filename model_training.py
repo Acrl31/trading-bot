@@ -19,17 +19,27 @@ def preprocess_data(file_path):
     """
     data = pd.read_csv(file_path)
     
-    # Feature engineering (example features)
+    # Feature engineering using all available data
     data['SMA_5'] = data['close'].rolling(window=5).mean()
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
-    data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
+    data['Volatility'] = data['high'] - data['low']  # Intraday volatility
+    data['Volume_Change'] = data['volume'].pct_change()  # Percent change in volume
 
-    # Drop NaN values created by rolling windows
+    # Lag features to account for historical data
+    data['Lag_Close_1'] = data['close'].shift(1)
+    data['Lag_Close_2'] = data['close'].shift(2)
+    data['Lag_Volume_1'] = data['volume'].shift(1)
+
+    # Drop rows with NaN values created by rolling and lag features
     data.dropna(inplace=True)
-    
+
+    # Define the target: 1 for Buy, -1 for Sell
+    data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)
+
     # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'Price_Change']]
+    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 
+              'Volume_Change', 'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1']]
     y = data['Target']
     
     return X, y
@@ -82,7 +92,7 @@ print("Tuning hyperparameters with RandomizedSearchCV...")
 random_search = RandomizedSearchCV(estimator=RandomForestClassifier(random_state=42),
                                    param_distributions=param_dist,
                                    n_iter=10,  # Limit the number of iterations for faster results
-                                   cv=10,  # Use 3-fold cross-validation
+                                   cv=3,  # Use 3-fold cross-validation
                                    verbose=2,
                                    n_jobs=-1,  # Use all CPU cores
                                    random_state=42)
