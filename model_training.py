@@ -2,9 +2,11 @@ import os
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score, StratifiedKFold
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 import joblib
+from sklearn.utils.class_weight import compute_class_weight
+from imblearn.over_sampling import SMOTE
 
 # Directory containing the data files
 DATA_DIR = "data"
@@ -13,27 +15,39 @@ INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
 # Function to preprocess the data
 def preprocess_data(file_path):
     """
-    Load and preprocess data for model training.
+    Load and preprocess data for model training, including new features like EMA and RSI.
     """
     data = pd.read_csv(file_path)
     
-    # Feature engineering (example features)
+    # Feature engineering
     data['SMA_5'] = data['close'].rolling(window=5).mean()
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
+    data['EMA_12'] = data['close'].ewm(span=12, adjust=False).mean()  # Exponential Moving Average
+    data['RSI'] = compute_rsi(data['close'], 14)  # Relative Strength Index (14-period)
     data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
 
-    # Handle the last row case where shift would result in NaN
-    data.loc[data.index[-1], 'Target'] = data['Target'].iloc[-2]  # Use previous value (1 or -1)
-
-    # Drop NaN values created by rolling windows and percentage change
+    # Drop NaN values created by rolling windows and other calculations
     data.dropna(inplace=True)
     
     # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'Price_Change']]
+    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'EMA_12', 'RSI']]
     y = data['Target']
     
     return X, y
+
+# Function to calculate RSI
+def compute_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    
+    avg_gain = gain.rolling(window=period, min_periods=1).mean()
+    avg_loss = loss.rolling(window=period, min_periods=1).mean()
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
 # Combined dataset for multiple instruments
 X_combined = []
@@ -53,50 +67,63 @@ for instrument in INSTRUMENTS:
 X_combined = pd.concat(X_combined, axis=0)
 y_combined = pd.concat(y_combined, axis=0)
 
-# Check data shapes
-print(f"X_combined shape: {X_combined.shape}")
-print(f"y_combined shape: {y_combined.shape}")
+# Check for class imbalance and apply SMOTE if necessary
+print("Checking for class imbalance...")
+class_counts = y_combined.value_counts()
+print(f"Class distribution:\n{class_counts}")
 
-# Splitting the data into train and test sets
+# Optional: Apply SMOTE if imbalance is detected
+smote = SMOTE(random_state=42)
+X_combined_resampled, y_combined_resampled = smote.fit_resample(X_combined, y_combined)
+
+# Train-test split
 print("Splitting the data into train and test sets...")
-X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X_combined_resampled, y_combined_resampled, test_size=0.2, random_state=42)
 
-# Hyperparameter tuning with GridSearchCV
+# Simplified parameter grid for testing
 param_grid = {
-    'n_estimators': [50],
-    'max_depth': [10],
-    'min_samples_split': [2],
-    'min_samples_leaf': [1],
-    'class_weight': ['balanced']  # Adding class weight to handle imbalanced data
+    'n_estimators': [50, 100, 200],
+    'max_depth': [10, 20, 30, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'class_weight': ['balanced', None]  # Adding class weight to handle imbalanced data
 }
 
-grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), param_grid=param_grid, cv=3, n_jobs=-1)
+# Use StratifiedKFold for better cross-validation with imbalanced data
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+# GridSearchCV with parallel execution
 print("Tuning hyperparameters with GridSearchCV...")
-
-# Perform GridSearchCV
+grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), 
+                           param_grid=param_grid, 
+                           cv=skf, 
+                           n_jobs=-1, 
+                           verbose=2)
 grid_search.fit(X_train, y_train)
-print(f"Best parameters: {grid_search.best_params_}")
 
-# Train the best model from grid search
+# Best model from grid search
+print(f"Best parameters: {grid_search.best_params_}")
 model = grid_search.best_estimator_
 
 # Cross-validation to evaluate model performance
-cross_val_scores = cross_val_score(model, X_combined, y_combined, cv=5)
+print("Evaluating model performance with cross-validation...")
+cross_val_scores = cross_val_score(model, X_combined_resampled, y_combined_resampled, cv=skf)
 print(f"Cross-validation scores: {cross_val_scores}")
 print(f"Mean score: {cross_val_scores.mean()}")
 
-# Train the model
+# Train the best model
 print("Training the model...")
 model.fit(X_train, y_train)
 
 # Evaluate the model
+print("Evaluating model performance on test data...")
 y_pred = model.predict(X_test)
 print("Model Performance:")
-print(classification_report(y_test, y_pred))
+print(classification_report(y_test, y_pred, target_names=["Sell", "Buy"]))
 print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
-print(f"Precision: {precision_score(y_test, y_pred, average='binary')}")
-print(f"Recall: {recall_score(y_test, y_pred, average='binary')}")
-print(f"F1-Score: {f1_score(y_test, y_pred, average='binary')}")
+print(f"Precision: {precision_score(y_test, y_pred, average='weighted')}")
+print(f"Recall: {recall_score(y_test, y_pred, average='weighted')}")
+print(f"F1-Score: {f1_score(y_test, y_pred, average='weighted')}")
 
 # Save the trained model
 MODEL_DIR = "models"
