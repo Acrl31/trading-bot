@@ -1,54 +1,19 @@
 import os
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_val_score
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 import joblib
-from scipy.stats import randint
-from concurrent.futures import ProcessPoolExecutor
 
 # Directory containing the data files
 DATA_DIR = "data"
 INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
 
-# Function to compute Relative Strength Index (RSI)
-def compute_rsi(series, window=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-# Function to compute Moving Average Convergence Divergence (MACD)
-def compute_macd(series, fast=12, slow=26, signal=9):
-    fast_ema = series.ewm(span=fast, min_periods=fast).mean()
-    slow_ema = series.ewm(span=slow, min_periods=slow).mean()
-    macd = fast_ema - slow_ema
-    signal_line = macd.ewm(span=signal, min_periods=signal).mean()
-    return macd, signal_line
-
-# Function to compute Bollinger Bands
-def compute_bollinger_bands(series, window=20, num_std=2):
-    sma = series.rolling(window=window).mean()
-    rolling_std = series.rolling(window=window).std()
-    upper_band = sma + (rolling_std * num_std)
-    lower_band = sma - (rolling_std * num_std)
-    return upper_band, lower_band
-
-# Function to compute Average True Range (ATR)
-def compute_atr(high, low, close, window=14):
-    tr = pd.concat([high - low, 
-                    abs(high - close.shift()), 
-                    abs(low - close.shift())], axis=1)
-    atr = tr.max(axis=1).rolling(window=window).mean()
-    return atr
-
 # Function to preprocess the data
 def preprocess_data(file_path):
     """
-    Load and preprocess data for model training with custom technical indicators.
+    Load and preprocess data for model training.
     """
     data = pd.read_csv(file_path)
     
@@ -59,16 +24,17 @@ def preprocess_data(file_path):
     data['Volatility'] = data['high'] - data['low']  # Intraday volatility
     data['Volume_Change'] = data['volume'].pct_change()  # Percent change in volume
 
-    # Calculate RSI, MACD, Bollinger Bands, and ATR
-    data['RSI'] = compute_rsi(data['close'], window=14)
-    data['MACD'], data['MACD_Signal'] = compute_macd(data['close'], fast=12, slow=26, signal=9)
-    data['Bollinger_Upper'], data['Bollinger_Lower'] = compute_bollinger_bands(data['close'], window=20, num_std=2)
-    data['ATR'] = compute_atr(data['high'], data['low'], data['close'], window=14)
-
     # Lag features to account for historical data
     data['Lag_Close_1'] = data['close'].shift(1)
     data['Lag_Close_2'] = data['close'].shift(2)
     data['Lag_Volume_1'] = data['volume'].shift(1)
+
+    # Time-based features (e.g., day of the week)
+    data['Day_Of_Week'] = data['timestamp'].apply(lambda x: pd.to_datetime(x).dayofweek)
+    data['Hour_Of_Day'] = data['timestamp'].apply(lambda x: pd.to_datetime(x).hour)
+
+    # Lag features for time-based elements
+    data['Lag_Hour_1'] = data['Hour_Of_Day'].shift(1)
 
     # Drop rows with NaN values created by rolling and lag features
     data.dropna(inplace=True)
@@ -78,14 +44,15 @@ def preprocess_data(file_path):
 
     # Features and labels
     X = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 
-              'Volume_Change', 'RSI', 'MACD', 'MACD_Signal', 
-              'Bollinger_Upper', 'Bollinger_Lower', 'ATR', 
-              'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1']]
+              'Volume_Change', 'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1',
+              'Day_Of_Week', 'Hour_Of_Day', 'Lag_Hour_1']]
     y = data['Target']
     
     return X, y
 
 # Efficiently process data for multiple instruments using parallelism
+from concurrent.futures import ProcessPoolExecutor
+
 def process_instrument_data(instrument):
     file_path = os.path.join(DATA_DIR, f"{instrument}_data.csv")
     if os.path.exists(file_path):
@@ -119,43 +86,33 @@ print(f"y_combined shape: {y_combined.shape}")
 # Train-test split
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Reduced parameter grid for RandomizedSearchCV
-param_dist = {
-    'n_estimators': randint(50, 200),
-    'max_depth': randint(5, 20),
-    'min_samples_split': randint(2, 10),
-    'min_samples_leaf': randint(1, 10),
-    'class_weight': ['balanced', None]
+# Gradient Boosting model
+model = GradientBoostingClassifier(random_state=42)
+
+# Hyperparameter grid for Gradient Boosting
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'learning_rate': [0.01, 0.1, 0.2],
+    'max_depth': [3, 5, 7],
+    'subsample': [0.8, 0.9, 1.0],
 }
 
-# RandomizedSearchCV with parallelization and fewer folds
-print("Tuning hyperparameters with RandomizedSearchCV...")
-random_search = RandomizedSearchCV(estimator=RandomForestClassifier(random_state=42),
-                                   param_distributions=param_dist,
-                                   n_iter=10,  # Limit the number of iterations for faster results
-                                   cv=3,  # Use 3-fold cross-validation
-                                   verbose=2,
-                                   n_jobs=-1,  # Use all CPU cores
-                                   random_state=42)
+# Grid search for best hyperparameters
+grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=3, n_jobs=-1, verbose=2)
 
-# Perform RandomizedSearchCV
-random_search.fit(X_train, y_train)
-print(f"Best parameters: {random_search.best_params_}")
+# Train with best hyperparameters
+grid_search.fit(X_train, y_train)
 
-# Train the best model from random search
-model = random_search.best_estimator_
+# Get the best model
+best_model = grid_search.best_estimator_
 
 # Cross-validation to evaluate model performance
-cross_val_scores = cross_val_score(model, X_combined, y_combined, cv=3, n_jobs=-1)
+cross_val_scores = cross_val_score(best_model, X_combined, y_combined, cv=3, n_jobs=-1)
 print(f"Cross-validation scores: {cross_val_scores}")
 print(f"Mean score: {cross_val_scores.mean()}")
 
-# Train the model
-print("Training the model...")
-model.fit(X_train, y_train)
-
 # Evaluate the model
-y_pred = model.predict(X_test)
+y_pred = best_model.predict(X_test)
 print("Model Performance:")
 print(classification_report(y_test, y_pred))
 print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
@@ -169,5 +126,5 @@ if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
 model_file_path = os.path.join(MODEL_DIR, "trading_model.pkl")
-joblib.dump(model, model_file_path)
+joblib.dump(best_model, model_file_path)
 print(f"Model saved to {model_file_path}")
