@@ -2,9 +2,10 @@ import os
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 import joblib
+import talib  # TA-Lib for technical indicators
 
 # Directory containing the data files
 DATA_DIR = "data"
@@ -23,11 +24,16 @@ def preprocess_data(file_path):
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
     data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
     
-    # Drop NaN values created by rolling windows
+    # Additional technical indicators using TA-Lib
+    data['RSI'] = talib.RSI(data['close'], timeperiod=14)
+    data['MACD'], data['MACD_signal'], _ = talib.MACD(data['close'], fastperiod=12, slowperiod=26, signalperiod=9)
+    data['UpperBand'], data['MiddleBand'], data['LowerBand'] = talib.BBANDS(data['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+
+    # Drop NaN values created by rolling windows and technical indicators
     data.dropna(inplace=True)
     
     # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'Price_Change']]
+    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'RSI', 'MACD', 'MACD_signal', 'UpperBand', 'MiddleBand', 'LowerBand']]
     y = data['Target']
     
     return X, y
@@ -53,9 +59,30 @@ y_combined = pd.concat(y_combined, axis=0)
 # Train-test split
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
+# Hyperparameter tuning with GridSearchCV
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [10, 20, 30],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'class_weight': ['balanced', None]  # Adding class weight to handle imbalanced data
+}
+
+grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), param_grid=param_grid, cv=3)
+print("Tuning hyperparameters...")
+grid_search.fit(X_train, y_train)
+print(f"Best parameters: {grid_search.best_params_}")
+
+# Train the best model from grid search
+model = grid_search.best_estimator_
+
+# Cross-validation to evaluate model performance
+cross_val_scores = cross_val_score(model, X_combined, y_combined, cv=5)
+print(f"Cross-validation scores: {cross_val_scores}")
+print(f"Mean score: {cross_val_scores.mean()}")
+
 # Train the model
 print("Training the model...")
-model = RandomForestClassifier(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 
 # Evaluate the model
@@ -63,6 +90,9 @@ y_pred = model.predict(X_test)
 print("Model Performance:")
 print(classification_report(y_test, y_pred))
 print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
+print(f"Precision: {precision_score(y_test, y_pred)}")
+print(f"Recall: {recall_score(y_test, y_pred)}")
+print(f"F1-Score: {f1_score(y_test, y_pred)}")
 
 # Save the trained model
 MODEL_DIR = "models"
