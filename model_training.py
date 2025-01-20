@@ -50,20 +50,31 @@ for instrument in INSTRUMENTS:
 X_combined = pd.concat(X_combined, axis=0)
 y_combined = pd.concat(y_combined, axis=0)
 
+# Check data shapes
+print(f"X_combined shape: {X_combined.shape}")
+print(f"y_combined shape: {y_combined.shape}")
+
 # Train-test split
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Hyperparameter tuning with GridSearchCV
+# Simplified parameter grid for testing
 param_grid = {
-    'n_estimators': [50, 100, 200],
-    'max_depth': [10, 20, 30],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4],
-    'class_weight': ['balanced', None]  # Adding class weight to handle imbalanced data
+    'n_estimators': [50],
+    'max_depth': [10],
+    'min_samples_split': [2],
+    'min_samples_leaf': [1],
+    'class_weight': ['balanced']  # Adding class weight to handle imbalanced data
 }
 
-grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), param_grid=param_grid, cv=3)
+# GridSearchCV with increased verbosity and parallel execution
+grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), 
+                           param_grid=param_grid, 
+                           cv=3, 
+                           verbose=2, 
+                           n_jobs=-1)  # Use all CPU cores
 print("Tuning hyperparameters...")
+
+# Perform GridSearchCV
 grid_search.fit(X_train, y_train)
 print(f"Best parameters: {grid_search.best_params_}")
 
