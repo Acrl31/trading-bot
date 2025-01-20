@@ -26,9 +26,13 @@ def preprocess_data(file_path):
     # Handle the last row case where shift would result in NaN
     data.loc[data.index[-1], 'Target'] = 0  # Or another logic based on your requirements (e.g., 1, -1, or 0)
 
-    # Drop NaN values created by rolling windows
+    # Drop NaN values created by rolling windows and percentage change
     data.dropna(inplace=True)
     
+    # Ensure the features are correct
+    if 'SMA_5' not in data or 'SMA_20' not in data or 'Price_Change' not in data:
+        raise ValueError("One or more required features are missing")
+
     # Features and labels
     X = data[['SMA_5', 'SMA_20', 'Price_Change']]
     y = data['Target']
@@ -61,17 +65,24 @@ print(f"y_combined shape: {y_combined.shape}")
 print("Splitting the data into train and test sets...")
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Hyperparameter tuning with GridSearchCV
-print("Tuning hyperparameters with GridSearchCV...")
+# Simplified parameter grid for testing
 param_grid = {
-    'n_estimators': [50, 100, 200],
-    'max_depth': [10, 20, 30],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4],
-    'class_weight': ['balanced', None]  # Adding class weight to handle imbalanced data
+    'n_estimators': [50],
+    'max_depth': [10],
+    'min_samples_split': [2],
+    'min_samples_leaf': [1],
+    'class_weight': ['balanced']  # Adding class weight to handle imbalanced data
 }
 
-grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), param_grid=param_grid, cv=3)
+# GridSearchCV with increased verbosity and parallel execution
+grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), 
+                           param_grid=param_grid, 
+                           cv=3, 
+                           verbose=2, 
+                           n_jobs=-1)  # Use all CPU cores
+print("Tuning hyperparameters with GridSearchCV...")
+
+# Perform GridSearchCV
 grid_search.fit(X_train, y_train)
 print(f"Best parameters: {grid_search.best_params_}")
 
