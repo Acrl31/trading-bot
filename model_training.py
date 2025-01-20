@@ -29,12 +29,20 @@ def preprocess_data(file_path):
     data['Lag_Close_2'] = data['close'].shift(2)
     data['Lag_Volume_1'] = data['volume'].shift(1)
 
-    # Time-based features (e.g., day of the week)
-    data['Day_Of_Week'] = data['timestamp'].apply(lambda x: pd.to_datetime(x).dayofweek)
-    data['Hour_Of_Day'] = data['timestamp'].apply(lambda x: pd.to_datetime(x).hour)
-
-    # Lag features for time-based elements
-    data['Lag_Hour_1'] = data['Hour_Of_Day'].shift(1)
+    # Check if 'timestamp' column exists and handle appropriately
+    if 'timestamp' in data.columns:
+        # If the timestamp column exists, convert to datetime and extract time-based features
+        data['timestamp'] = pd.to_datetime(data['timestamp'])
+        data['Day_Of_Week'] = data['timestamp'].dt.dayofweek
+        data['Hour_Of_Day'] = data['timestamp'].dt.hour
+        # Lag feature for hour-based element
+        data['Lag_Hour_1'] = data['Hour_Of_Day'].shift(1)
+    else:
+        print("Warning: 'timestamp' column not found. Skipping time-based features.")
+        # Set default values if no timestamp column is available
+        data['Day_Of_Week'] = 0
+        data['Hour_Of_Day'] = 0
+        data['Lag_Hour_1'] = 0
 
     # Drop rows with NaN values created by rolling and lag features
     data.dropna(inplace=True)
