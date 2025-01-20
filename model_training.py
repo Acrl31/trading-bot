@@ -5,7 +5,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 import joblib
-import talib  # TA-Lib for technical indicators
 
 # Directory containing the data files
 DATA_DIR = "data"
@@ -23,17 +22,12 @@ def preprocess_data(file_path):
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
     data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
-    
-    # Additional technical indicators using TA-Lib
-    data['RSI'] = talib.RSI(data['close'], timeperiod=14)
-    data['MACD'], data['MACD_signal'], _ = talib.MACD(data['close'], fastperiod=12, slowperiod=26, signalperiod=9)
-    data['UpperBand'], data['MiddleBand'], data['LowerBand'] = talib.BBANDS(data['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
 
-    # Drop NaN values created by rolling windows and technical indicators
+    # Drop NaN values created by rolling windows
     data.dropna(inplace=True)
     
     # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'RSI', 'MACD', 'MACD_signal', 'UpperBand', 'MiddleBand', 'LowerBand']]
+    X = data[['SMA_5', 'SMA_20', 'Price_Change']]
     y = data['Target']
     
     return X, y
