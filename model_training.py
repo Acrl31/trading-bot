@@ -21,14 +21,12 @@ def preprocess_data(file_path):
     data['SMA_5'] = data['close'].rolling(window=5).mean()
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
-    
-    # Set 'Target' with the next day's price, using the last row for consistency
     data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
     
-    # Handle last row case where shift would result in NaN
-    data['Target'].iloc[-1] = 0  # Or another logic based on your requirements (e.g., 1, -1, or 0)
+    # Handle the last row case where shift would result in NaN
+    data.loc[data.index[-1], 'Target'] = 0  # Or another logic based on your requirements (e.g., 1, -1, or 0)
 
-    # Drop NaN values created by rolling windows or shifts
+    # Drop NaN values created by rolling windows
     data.dropna(inplace=True)
     
     # Features and labels
@@ -63,24 +61,17 @@ print(f"y_combined shape: {y_combined.shape}")
 print("Splitting the data into train and test sets...")
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Simplified parameter grid for testing
+# Hyperparameter tuning with GridSearchCV
+print("Tuning hyperparameters with GridSearchCV...")
 param_grid = {
-    'n_estimators': [50],
-    'max_depth': [10],
-    'min_samples_split': [2],
-    'min_samples_leaf': [1],
-    'class_weight': ['balanced']  # Adding class weight to handle imbalanced data
+    'n_estimators': [50, 100, 200],
+    'max_depth': [10, 20, 30],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'class_weight': ['balanced', None]  # Adding class weight to handle imbalanced data
 }
 
-# GridSearchCV with increased verbosity and parallel execution
-grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), 
-                           param_grid=param_grid, 
-                           cv=3, 
-                           verbose=2, 
-                           n_jobs=-1)  # Use all CPU cores
-print("Tuning hyperparameters with GridSearchCV...")
-
-# Perform GridSearchCV
+grid_search = GridSearchCV(estimator=RandomForestClassifier(random_state=42), param_grid=param_grid, cv=3)
 grid_search.fit(X_train, y_train)
 print(f"Best parameters: {grid_search.best_params_}")
 
