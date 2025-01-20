@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 import joblib
 from scipy.stats import randint
+from concurrent.futures import ProcessPoolExecutor
 
 # Directory containing the data files
 DATA_DIR = "data"
@@ -33,19 +34,28 @@ def preprocess_data(file_path):
     
     return X, y
 
-# Combined dataset for multiple instruments
-X_combined = []
-y_combined = []
-
-for instrument in INSTRUMENTS:
+# Efficiently process data for multiple instruments using parallelism
+def process_instrument_data(instrument):
     file_path = os.path.join(DATA_DIR, f"{instrument}_data.csv")
     if os.path.exists(file_path):
         print(f"Processing data for {instrument}...")
-        X, y = preprocess_data(file_path)
-        X_combined.append(pd.DataFrame(X))  # Convert X (NumPy array) to DataFrame
-        y_combined.append(pd.Series(y))     # Convert y (NumPy array) to Series
+        return preprocess_data(file_path)
     else:
         print(f"Data file for {instrument} not found. Skipping...")
+        return None, None
+
+# Using ProcessPoolExecutor for parallel processing of data
+with ProcessPoolExecutor() as executor:
+    results = list(executor.map(process_instrument_data, INSTRUMENTS))
+
+# Collect the processed data
+X_combined = []
+y_combined = []
+
+for X, y in results:
+    if X is not None and y is not None:
+        X_combined.append(X)
+        y_combined.append(y)
 
 # Combine all data into single datasets
 X_combined = pd.concat(X_combined, axis=0, ignore_index=True)  # Concatenate along rows (axis=0)
