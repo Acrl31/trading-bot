@@ -1,104 +1,74 @@
 import os
 import pandas as pd
-import oandapyV20
-import oandapyV20.endpoints.orders as orders
-import joblib
 import numpy as np
-from datetime import datetime
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, accuracy_score
+import joblib
 
-# OANDA API credentials (replace with your own)
-ACCESS_TOKEN = os.getenv("API_KEY")
-ACCOUNT_ID = os.getenv("ACCOUNT_ID")
-CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
-
-# Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
-MODEL = joblib.load('models/trading_model.pkl')
-
-# Instruments to trade
+# Directory containing the data files
+DATA_DIR = "data"
 INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
 
-# Risk management parameters
-TRADE_AMOUNT = 1000  # Capital to risk per trade (adjust as necessary)
-STOP_LOSS = 0.01  # Stop loss in terms of price change (e.g., 0.01 means 1 pip)
-TAKE_PROFIT = 0.02  # Take profit in terms of price change (e.g., 0.02 means 2 pips)
+# Function to preprocess the data
+def preprocess_data(file_path):
+    """
+    Load and preprocess data for model training.
+    """
+    data = pd.read_csv(file_path)
+    
+    # Feature engineering (example features)
+    data['SMA_5'] = data['close'].rolling(window=5).mean()
+    data['SMA_20'] = data['close'].rolling(window=20).mean()
+    data['Price_Change'] = data['close'].pct_change()  # Percent change in price
+    data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)  # 1 for Buy, -1 for Sell
+    
+    # Drop NaN values created by rolling windows
+    data.dropna(inplace=True)
+    
+    # Features and labels
+    X = data[['SMA_5', 'SMA_20', 'Price_Change']]
+    y = data['Target']
+    
+    return X, y
 
-# Function to get the latest market data from OANDA (closing price and volume)
-def get_latest_data(instrument):
-    params = {
-        "granularity": "H1",  # 1-hour candles, adjust as needed
-        "count": 1  # Fetch the latest data point
-    }
-    
-    # Request data from OANDA
-    try:
-        response = oandapyV20.endpoints.Instruments.InstrumentsCandles(instrument=instrument, params=params)
-        CLIENT.request(response)
-        candles = response.response['candles']
-        
-        # Extract relevant data (close price and volume)
-        latest_candle = candles[0]
-        close_price = float(latest_candle['mid']['c'])
-        volume = int(latest_candle['volume'])
-        
-        # Return the data as a numpy array for prediction
-        return np.array([close_price, volume]).reshape(1, -1)
-    except Exception as e:
-        print(f"Error fetching data for {instrument}: {e}")
-        return None
+# Combined dataset for multiple instruments
+X_combined = []
+y_combined = []
 
-# Function to execute a trade (buy, sell, or hold)
-def execute_trade(action, instrument):
-    # Fetch the latest data for prediction
-    latest_data = get_latest_data(instrument)
-    if latest_data is None:
-        return
-    
-    # Predict the action (buy, sell, or hold)
-    prediction = MODEL.predict(latest_data)
-    print(f"Model predicted action for {instrument}: {prediction[0]}")
-
-    if prediction == 1:  # Buy signal
-        print(f"Placing Buy Order for {instrument}...")
-        order = orders.OrderCreate(
-            ACCOUNT_ID,
-            data={
-                "order": {
-                    "units": TRADE_AMOUNT,  # Buy order with the specified amount
-                    "instrument": instrument,
-                    "time_in_force": "GTC",
-                    "type": "MARKET",
-                    "position_fill": "DEFAULT",
-                    "stopLoss": {"price": str(latest_data[0] - STOP_LOSS)},
-                    "takeProfit": {"price": str(latest_data[0] + TAKE_PROFIT)},
-                }
-            }
-        )
-        CLIENT.request(order)
-        print(f"Buy order placed successfully for {instrument}!")
-    
-    elif prediction == -1:  # Sell signal
-        print(f"Placing Sell Order for {instrument}...")
-        order = orders.OrderCreate(
-            ACCOUNT_ID,
-            data={
-                "order": {
-                    "units": -TRADE_AMOUNT,  # Sell order with the specified amount
-                    "instrument": instrument,
-                    "time_in_force": "GTC",
-                    "type": "MARKET",
-                    "position_fill": "DEFAULT",
-                    "stopLoss": {"price": str(latest_data[0] + STOP_LOSS)},
-                    "takeProfit": {"price": str(latest_data[0] - TAKE_PROFIT)},
-                }
-            }
-        )
-        CLIENT.request(order)
-        print(f"Sell order placed successfully for {instrument}!")
-    
+for instrument in INSTRUMENTS:
+    file_path = os.path.join(DATA_DIR, f"{instrument}_data.csv")
+    if os.path.exists(file_path):
+        print(f"Processing data for {instrument}...")
+        X, y = preprocess_data(file_path)
+        X_combined.append(X)
+        y_combined.append(y)
     else:
-        print(f"No action taken for {instrument}. Model predicted 'hold'.")
+        print(f"Data file for {instrument} not found. Skipping...")
 
-# Run the trading script for all instruments
-if __name__ == "__main__":
-    for instrument in INSTRUMENTS:
-        execute_trade(action=None, instrument=instrument)
+# Combine all data into single datasets
+X_combined = pd.concat(X_combined, axis=0)
+y_combined = pd.concat(y_combined, axis=0)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
+
+# Train the model
+print("Training the model...")
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Evaluate the model
+y_pred = model.predict(X_test)
+print("Model Performance:")
+print(classification_report(y_test, y_pred))
+print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
+
+# Save the trained model
+MODEL_DIR = "models"
+if not os.path.exists(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+
+model_file_path = os.path.join(MODEL_DIR, "trading_model.pkl")
+joblib.dump(model, model_file_path)
+print(f"Model saved to {model_file_path}")
