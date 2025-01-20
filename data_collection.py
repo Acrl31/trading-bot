@@ -15,7 +15,7 @@ INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
 
 # Timeframe and granularity for historical data
 GRANULARITY = "H1"  # 1-hour candles
-START_DATE = (datetime.utcnow() - timedelta(days=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
+START_DATE = (datetime.utcnow() - timedelta(days=300)).strftime("%Y-%m-%dT%H:%M:%SZ")
 END_DATE = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # Directory to save collected data
