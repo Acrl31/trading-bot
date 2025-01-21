@@ -113,7 +113,9 @@ def train_model(X, y):
 
     # Feature importance analysis
     feature_importance = model.feature_importances_
-    feature_names = [col for col in data.columns if col not in ['target', 'instrument']]
+
+    # Correct feature names extraction
+    feature_names = [f"Feature {i}" for i in range(X.shape[1])]  # Match the number of columns in X
     plt.figure(figsize=(10, 6))
     plt.barh(feature_names, feature_importance)
     plt.xlabel("Feature Importance")
