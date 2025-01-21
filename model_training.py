@@ -97,25 +97,27 @@ def preprocess_data(df):
 
     return X_scaled_df, y, feature_columns
 
+from sklearn.model_selection import StratifiedKFold
+
 def train_model(X, y):
     """
     Train a Gradient Boosting model and evaluate its performance.
     """
-    # Time-based split
-    tscv = TimeSeriesSplit(n_splits=5)
+    # Use StratifiedKFold for ensuring balanced class distribution in each fold
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
     cv_scores = []
 
     # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=500,   # Increased number of estimators
-        learning_rate=0.01,  # Lower learning rate
+        n_estimators=500,
+        learning_rate=0.01,
         max_depth=12,
         min_samples_split=3,
         min_samples_leaf=2,
         random_state=RANDOM_STATE
     )
 
-    for train_index, test_index in tscv.split(X):
+    for train_index, test_index in skf.split(X, y):
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
@@ -123,11 +125,6 @@ def train_model(X, y):
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
-        
-        # Check for at least two classes in the training set
-        if len(np.unique(y_train)) < 2:
-            print("Skipping fold due to one class in the training set.")
-            continue
 
         model.fit(X_train_scaled, y_train)
         y_pred = model.predict(X_test_scaled)
