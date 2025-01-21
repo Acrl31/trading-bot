@@ -48,6 +48,7 @@ def get_latest_data(instrument):
         response = CLIENT.request(request)
         candles = response['candles']
         market_data = {
+            'open_prices': [float(c['mid']['o']) for c in candles],
             'close_prices': [float(c['mid']['c']) for c in candles],
             'high_prices': [float(c['mid']['h']) for c in candles],
             'low_prices': [float(c['mid']['l']) for c in candles],
@@ -63,24 +64,48 @@ def get_latest_data(instrument):
         print(f"Error fetching data for {instrument}: {e}")
         return None
 
-def create_features(close_prices, volumes, timestamps):
+def create_features(open_prices, high_prices, low_prices, close_prices, volumes, timestamps):
     features = {}
+
+    # Price Data
+    features['open'] = open_prices[-1] if len(open_prices) >= 1 else np.nan
+    features['high'] = high_prices[-1] if len(high_prices) >= 1 else np.nan
+    features['low'] = low_prices[-1] if len(low_prices) >= 1 else np.nan
+    features['close'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
+    features['volume'] = volumes[-1] if len(volumes) >= 1 else np.nan
+
+    # Moving Averages
     features['ma_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
     features['ma_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
+    
+    # Exponential Moving Averages
     features['ema_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
     features['ema_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
+    
+    # Bollinger Bands
     rolling_std = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['bollinger_upper'] = features['ma_long'] + (2 * rolling_std)
     features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
-    features['rsi'] = np.mean(close_prices[-14:])  # Simplified RSI calculation for faster execution
+    
+    # RSI (Relative Strength Index)
+    features['rsi'] = np.mean(close_prices[-14:])  # Simplified RSI calculation
+    
+    # MACD (Moving Average Convergence Divergence)
     features['macd'] = np.mean(close_prices[-12:]) - np.mean(close_prices[-26:])  # Simplified MACD
     features['macd_signal'] = np.mean(close_prices[-9:])  # Simplified Signal Line
     features['macd_diff'] = features['macd'] - features['macd_signal']
-    features['high_low_diff'] = close_prices[-1] - close_prices[-2] if len(close_prices) >= 2 else np.nan
-    features['open_close_diff'] = close_prices[-1] - close_prices[-2] if len(close_prices) >= 2 else np.nan
+    
+    # Price Differences
+    features['high_low_diff'] = high_prices[-1] - low_prices[-1] if len(high_prices) >= 1 and len(low_prices) >= 1 else np.nan
+    features['open_close_diff'] = open_prices[-1] - close_prices[-1] if len(open_prices) >= 1 and len(close_prices) >= 1 else np.nan
 
+    # Convert features into a DataFrame
     features_df = pd.DataFrame([features]).fillna(0)
-    return features_df[['ma_short', 'ma_long', 'ema_short', 'ema_long', 'bollinger_upper', 'bollinger_lower', 'rsi', 'macd', 'macd_signal', 'macd_diff', 'high_low_diff', 'open_close_diff']]
+    
+    # Return the relevant columns as requested
+    return features_df[['open', 'high', 'low', 'close', 'volume', 'ma_short', 'ma_long', 'ema_short', 
+                        'ema_long', 'bollinger_upper', 'bollinger_lower', 'rsi', 'macd', 'macd_signal', 
+                        'macd_diff', 'high_low_diff', 'open_close_diff']]
 
 def calculate_atr(close_prices, high_prices, low_prices, period=14):
     df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
@@ -164,6 +189,9 @@ def execute_trade(instrument):
             return "Error: Unable to fetch market data."
 
         features = create_features(
+            market_data['open_prices'],
+            market_data['high_prices'],
+            market_data['low_prices'],
             market_data['close_prices'],
             market_data['volumes'],
             market_data['timestamps']
