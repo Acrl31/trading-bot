@@ -35,6 +35,7 @@ def add_features(df):
     """
     features = {}  # Dictionary to store feature names and corresponding values
     df['ma_short'] = df['close'].rolling(window=5).mean()
+    df['ma_long'] = df['close'].rolling(window=20).mean()
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
     features['ema_short'] = df['ema_short']
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
