@@ -15,19 +15,19 @@ ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 
 # Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
-MODEL = joblib.load('trained_model.pkl')
+MODEL = joblib.load('models/trading_model.pkl')
 
-# List of instruments to trade (optimized for scalping)
+# List of instruments to trade (same as in your model)
 INSTRUMENTS = [
     'EUR_USD',  # Euro / US Dollar
     'USD_JPY',  # US Dollar / Japanese Yen
     'GBP_USD',  # British Pound / US Dollar
     'AUD_USD',  # Australian Dollar / US Dollar
-    'USD_CAD',  # US Dollar / Canadian Dollar
     'USD_CHF',  # US Dollar / Swiss Franc
     'EUR_JPY',  # Euro / Japanese Yen
     'GBP_JPY',  # British Pound / Japanese Yen
     'EUR_GBP',  # Euro / British Pound
+    'USD_CAD',  # US Dollar / Canadian Dollar
     'NZD_USD'   # New Zealand Dollar / US Dollar
 ]
 
@@ -43,12 +43,11 @@ def get_account_balance():
 
 def get_latest_data(instrument):
     try:
-        params = {"granularity": "M1", "count": 100, "price": "M"}
+        params = {"granularity": "H1", "count": 100, "price": "M"}
         request = instruments.InstrumentsCandles(instrument, params=params)
         response = CLIENT.request(request)
         candles = response['candles']
         market_data = {
-            'open_prices': [float(c['mid']['o']) for c in candles],
             'close_prices': [float(c['mid']['c']) for c in candles],
             'high_prices': [float(c['mid']['h']) for c in candles],
             'low_prices': [float(c['mid']['l']) for c in candles],
@@ -107,24 +106,23 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
                         'ema_long', 'bollinger_upper', 'bollinger_lower', 'rsi', 'macd', 'macd_signal', 
                         'macd_diff', 'high_low_diff', 'open_close_diff']]
 
-def calculate_atr_scalping(close_prices, high_prices, low_prices, period=5):
+def calculate_atr(close_prices, high_prices, low_prices, period=14):
     df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
     df['prev_close'] = df['close'].shift(1)
     df['tr'] = df[['high', 'low', 'prev_close']].apply(
         lambda x: max(x['high'] - x['low'], abs(x['high'] - x['prev_close']), abs(x['low'] - x['prev_close'])),
         axis=1
     )
-    df['atr'] = df['tr'].rolling(window=period).mean()
+    df['atr'] = df['tr'].ewm(span=period, min_periods=1).mean()
     atr_value = df['atr'].iloc[-1]
     return atr_value
 
 def get_confidence(features, prediction):
     try:
-        prob = MODEL.predict_proba(features)[0]
         if prediction == 1:
-            confidence = prob[1]  # Probability of class 1 (positive)
+            confidence = MODEL.predict_proba(features)[0][1]
         elif prediction == 0:
-            confidence = prob[0]  # Probability of class 0 (negative)
+            confidence = MODEL.predict_proba(features)[0][0]
         else:
             confidence = 0
         return confidence * 100
@@ -154,31 +152,11 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         # Round trade_amount to the nearest whole number
         rounded_trade_amount = int(round(trade_amount))
         
-        # Adjust prices considering slippage
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
-        
-        # Adjust stop loss and take profit based on whether it's a buy or sell
-        if side == "buy":
-            stop_loss = current_price - (stop_loss * slippage)
-            take_profit = current_price + (take_profit * slippage)
-        elif side == "sell":
-            stop_loss = current_price + (stop_loss * slippage)
-            take_profit = current_price - (take_profit * slippage)
-        
-        # Ensure stop loss and take profit are at a reasonable distance
-        min_distance = 0.0010  # 10 pips for EUR/JPY
-        if abs(stop_loss - take_profit) < min_distance:
-            if side == "buy":
-                take_profit = stop_loss + min_distance
-            else:
-                take_profit = stop_loss - min_distance
-        
-        # Round the prices
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
-        
-        print(f"Order Details - Instrument: {instrument}, Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
+        print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
         order_payload = {
             "order": {
@@ -198,49 +176,45 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
-        
+
 def execute_trade(instrument):
-    data = get_latest_data(instrument)
-    
-    if data:
-        close_prices = data['close_prices']
-        high_prices = data['high_prices']
-        low_prices = data['low_prices']
-        open_prices = data['open_prices']
-        volumes = data['volumes']
-        current_price = data['prices']['buy']  # Using buy price for now
-        
-        atr = calculate_atr_scalping(close_prices, high_prices, low_prices)
+    try:
+        balance = get_account_balance()
+        if not balance:
+            return "Error: Unable to retrieve account balance."
+        trade_amount = balance * 0.01
+        market_data = get_latest_data(instrument)
+        if not market_data:
+            return "Error: Unable to fetch market data."
 
-        features_df = create_features(open_prices, high_prices, low_prices, close_prices, volumes, data['timestamps'])
-        prediction = MODEL.predict(features_df)[0]
-        confidence = get_confidence(features_df, prediction)
+        features = create_features(
+            market_data['close_prices'],
+            market_data['volumes'],
+            market_data['timestamps']
+        )
+        prediction = MODEL.predict(features)[0]
+        atr = calculate_atr(
+            market_data['close_prices'],
+            market_data['high_prices'],
+            market_data['low_prices']
+        )
 
-        if confidence < 70:
-            print(f"Low confidence ({confidence}%). Skipping trade for {instrument}.")
-            return
+        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
+        # Set tighter multipliers for SL and        TP for scalping
+        stop_loss = current_price - atr * 0.1 if prediction == 1 else current_price + atr * 0.1
+        take_profit = current_price + atr * 0.2 if prediction == 1 else current_price - atr * 0.2
 
-        # Calculate stop loss and take profit
-        sl_multiplier = 0.25  # Adjust as necessary
-        tp_multiplier = 0.5  # Adjust as necessary
-        stop_loss = current_price - atr * sl_multiplier
-        take_profit = current_price + atr * tp_multiplier
+        print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
+        confidence = get_confidence(features, prediction)
+        if confidence < 80:
+            return "Confidence too low to execute trade."
 
-        # Ensure stop loss and take profit are far enough from current price
-        min_distance = 0.0005   # 10 pips for EUR/JPY
-        if abs(stop_loss - current_price) < min_distance:
-            stop_loss = current_price + min_distance
-        if abs(take_profit - current_price) < min_distance:
-            take_profit = current_price + min_distance
+        side = "buy" if prediction == 1 else "sell"
+        return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+    except Exception as e:
+        print(f"Error during trade execution: {e}")
+        return "Error during trade execution."
 
-        # Execute the order
-        if prediction == 1:
-            execute_ioc_order(instrument, "buy", 1000, stop_loss, take_profit, current_price)  # Adjust trade amount as needed
-        elif prediction == -1:
-            execute_ioc_order(instrument, "sell", 1000, stop_loss, take_profit, current_price)  # Adjust trade amount as needed
-    else:
-        print(f"No data for {instrument}, skipping.")
-
-# Execute trades for each instrument in the list
-for instrument in INSTRUMENTS:
-    execute_trade(instrument)
+if __name__ == "__main__":
+    for instrument in INSTRUMENTS:
+        print(execute_trade(instrument))
