@@ -8,7 +8,18 @@ import joblib
 
 # Directory containing the data files
 DATA_DIR = "data"
-INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
+INSTRUMENTS = [
+    'EUR_USD',  # Euro / US Dollar
+    'USD_JPY',  # US Dollar / Japanese Yen
+    'GBP_USD',  # British Pound / US Dollar
+    'AUD_USD',  # Australian Dollar / US Dollar
+    'USD_CHF',  # US Dollar / Swiss Franc
+    'EUR_JPY',  # Euro / Japanese Yen
+    'GBP_JPY',  # British Pound / Japanese Yen
+    'EUR_GBP',  # Euro / British Pound
+    'USD_CAD',  # US Dollar / Canadian Dollar
+    'NZD_USD'   # New Zealand Dollar / US Dollar
+]
 
 # Function to preprocess the data
 def preprocess_data(file_path):
