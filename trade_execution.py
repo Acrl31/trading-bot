@@ -108,30 +108,52 @@ def get_confidence(features, prediction):
         print(f"Error calculating confidence: {e}")
         return 0
 
-def get_instrument_precision(instrument):
+def get_instrument_precision_and_lot_size(instrument):
     """
-    Get the precision allowed for a specific instrument.
+    Get the precision and lot size for a specific instrument.
     
     Parameters:
         instrument (str): The instrument to trade (e.g., "XAG_USD").
     
     Returns:
-        int: The number of decimal places allowed.
+        tuple: (precision, lot_size)
     """
     precision_map = {
-        "XAU_USD": 2,  # Gold
-        "XAG_USD": 3,  # Silver
-        "EUR_USD": 5,  # Euro/USD
-        "USD_JPY": 3,  # USD/JPY
-        "GBP_USD": 5,  # GBP/USD
-        "AUD_USD": 5,  # AUD/USD
+        "XAU_USD": (2, 1),  # Gold
+        "XAG_USD": (3, 1),  # Silver
+        "EUR_USD": (5, 1000),  # Euro/USD
+        "USD_JPY": (3, 1000),  # USD/JPY
+        "GBP_USD": (5, 1000),  # GBP/USD
+        "AUD_USD": (5, 1000),  # AUD/USD
     }
-    return precision_map.get(instrument, 5)  # Default to 5 if not specified
+    return precision_map.get(instrument, (5, 1000))  # Default to 5 decimal places and lot size of 1000
+
+def calculate_trade_amount(balance, instrument):
+    """
+    Calculate the trade amount based on the balance and the instrument's minimum lot size.
+    
+    Parameters:
+        balance (float): The current account balance.
+        instrument (str): The instrument to trade (e.g., "EUR_USD").
+    
+    Returns:
+        float: The trade amount, rounded to the appropriate lot size.
+    """
+    # Get the instrument's precision and lot size
+    _, lot_size = get_instrument_precision_and_lot_size(instrument)
+    
+    # Calculate the trade amount as 1% of the balance
+    trade_amount = balance * 0.01
+    
+    # Round the trade amount to the closest multiple of the lot size
+    trade_amount = round(trade_amount / lot_size) * lot_size
+    
+    return trade_amount
 
 def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
     try:
         # Get precision for the instrument
-        precision = get_instrument_precision(instrument)
+        precision = get_instrument_precision_and_lot_size(instrument)[0]
         
         # Round price, stop loss, and take profit to the correct precision
         rounded_price = round(current_price, precision)
@@ -164,12 +186,12 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
 def execute_trade(instrument):
     try:
-        balance = get_account_balance()  # Changed to get_account_balance()
+        balance = get_account_balance()  # Get account balance
         if not balance:
             return "Error: Unable to retrieve account balance."
         
-        # Ensure that the trade size is at most 1% of the balance
-        trade_amount = balance * 0.01
+        # Calculate the trade amount based on the balance and instrument
+        trade_amount = calculate_trade_amount(balance, instrument)
         
         market_data = get_latest_data(instrument)
         if not market_data:
@@ -188,18 +210,4 @@ def execute_trade(instrument):
         )
         stop_loss = round(atr * 2, 5)
         take_profit = round(atr * 4, 5)
-        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        confidence = get_confidence(features, prediction)
-        
-        if confidence < 30:
-            return "Confidence too low to execute trade."
-
-        side = "buy" if prediction == 1 else "sell"
-        return execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
-    except Exception as e:
-        print(f"Error during trade execution: {e}")
-        return "Error during trade execution."
-
-if __name__ == "__main__":
-    for instrument in INSTRUMENTS:
-        print(execute_trade(instrument))
+        current_price = market
