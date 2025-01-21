@@ -1,24 +1,16 @@
 import os
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.feature_selection import SelectFromModel
 import joblib
 
 # Directory containing the data files
 DATA_DIR = "data"
 INSTRUMENTS = [
-    'EUR_USD',  # Euro / US Dollar
-    'USD_JPY',  # US Dollar / Japanese Yen
-    'GBP_USD',  # British Pound / US Dollar
-    'AUD_USD',  # Australian Dollar / US Dollar
-    'USD_CHF',  # US Dollar / Swiss Franc
-    'EUR_JPY',  # Euro / Japanese Yen
-    'GBP_JPY',  # British Pound / Japanese Yen
-    'EUR_GBP',  # Euro / British Pound
-    'USD_CAD',  # US Dollar / Canadian Dollar
-    'NZD_USD'   # New Zealand Dollar / US Dollar
+    'EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD', 'USD_CHF', 'EUR_JPY', 'GBP_JPY', 'EUR_GBP', 'USD_CAD', 'NZD_USD'
 ]
 
 # Function to preprocess the data
@@ -28,7 +20,7 @@ def preprocess_data(file_path):
     """
     data = pd.read_csv(file_path)
     
-    # Feature engineering using all available data
+    # Feature engineering with essential indicators for scalping
     data['SMA_5'] = data['close'].rolling(window=5).mean()
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
@@ -37,39 +29,19 @@ def preprocess_data(file_path):
 
     # Lag features to account for historical data
     data['Lag_Close_1'] = data['close'].shift(1)
-    data['Lag_Close_2'] = data['close'].shift(2)
     data['Lag_Volume_1'] = data['volume'].shift(1)
 
-    # Check if 'timestamp' column exists and handle appropriately
-    if 'timestamp' in data.columns:
-        # If the timestamp column exists, convert to datetime and extract time-based features
-        data['timestamp'] = pd.to_datetime(data['timestamp'])
-        data['Day_Of_Week'] = data['timestamp'].dt.dayofweek
-        data['Hour_Of_Day'] = data['timestamp'].dt.hour
-        # Lag feature for hour-based element
-        data['Lag_Hour_1'] = data['Hour_Of_Day'].shift(1)
-    else:
-        print("Warning: 'timestamp' column not found. Skipping time-based features.")
-        # Set default values if no timestamp column is available
-        data['Day_Of_Week'] = 0
-        data['Hour_Of_Day'] = 0
-        data['Lag_Hour_1'] = 0
-
-    # Drop rows with NaN values created by rolling and lag features
+    # Handle missing values and prepare target variable
     data.dropna(inplace=True)
-
-    # Define the target: 1 for Buy, -1 for Sell
     data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)
 
     # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 
-              'Volume_Change', 'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1',
-              'Day_Of_Week', 'Hour_Of_Day', 'Lag_Hour_1']]
+    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 'Volume_Change', 'Lag_Close_1', 'Lag_Volume_1']]
     y = data['Target']
     
     return X, y
 
-# Efficiently process data for multiple instruments using parallelism
+# Efficiently process data for multiple instruments
 from concurrent.futures import ProcessPoolExecutor
 
 def process_instrument_data(instrument):
@@ -95,43 +67,35 @@ for X, y in results:
         y_combined.append(y)
 
 # Combine all data into single datasets
-X_combined = pd.concat(X_combined, axis=0, ignore_index=True)  # Concatenate along rows (axis=0)
-y_combined = pd.concat(y_combined, axis=0, ignore_index=True)  # Concatenate along rows (axis=0)
-
-# Check data shapes
-print(f"X_combined shape: {X_combined.shape}")
-print(f"y_combined shape: {y_combined.shape}")
+X_combined = pd.concat(X_combined, axis=0, ignore_index=True)
+y_combined = pd.concat(y_combined, axis=0, ignore_index=True)
 
 # Train-test split
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Gradient Boosting model
-model = GradientBoostingClassifier(random_state=42)
+# Use Random Forest (faster than Gradient Boosting for scalping)
+model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
 
-# Hyperparameter grid for Gradient Boosting
-param_grid = {
-    'n_estimators': [50, 100, 200],
-    'learning_rate': [0.01, 0.1, 0.2],
-    'max_depth': [3, 5, 7],
-    'subsample': [0.8, 0.9, 1.0],
-}
+# Feature selection
+selector = SelectFromModel(model, threshold="mean", max_features=5)
+X_train_selected = selector.fit_transform(X_train, y_train)
+X_test_selected = selector.transform(X_test)
 
-# Grid search for best hyperparameters
-grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=3, n_jobs=-1, verbose=2)
+# TimeSeriesSplit for time-series cross-validation
+tscv = TimeSeriesSplit(n_splits=3)
+cross_val_scores = []
 
-# Train with best hyperparameters
-grid_search.fit(X_train, y_train)
+for train_idx, test_idx in tscv.split(X_train_selected):
+    model.fit(X_train_selected[train_idx], y_train.iloc[train_idx])
+    y_pred = model.predict(X_train_selected[test_idx])
+    cross_val_scores.append(accuracy_score(y_train.iloc[test_idx], y_pred))
 
-# Get the best model
-best_model = grid_search.best_estimator_
-
-# Cross-validation to evaluate model performance
-cross_val_scores = cross_val_score(best_model, X_combined, y_combined, cv=3, n_jobs=-1)
 print(f"Cross-validation scores: {cross_val_scores}")
-print(f"Mean score: {cross_val_scores.mean()}")
+print(f"Mean score: {np.mean(cross_val_scores)}")
 
 # Evaluate the model
-y_pred = best_model.predict(X_test)
+model.fit(X_train_selected, y_train)
+y_pred = model.predict(X_test_selected)
 print("Model Performance:")
 print(classification_report(y_test, y_pred))
 print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
@@ -144,6 +108,6 @@ MODEL_DIR = "models"
 if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
-model_file_path = os.path.join(MODEL_DIR, "trading_model.pkl")
-joblib.dump(best_model, model_file_path)
+model_file_path = os.path.join(MODEL_DIR, "scalping_model.pkl")
+joblib.dump(model, model_file_path)
 print(f"Model saved to {model_file_path}")
