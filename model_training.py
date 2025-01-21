@@ -25,7 +25,7 @@ def preprocess_data(file_path):
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['EMA_5'] = data['close'].ewm(span=5, adjust=False).mean()
     data['EMA_20'] = data['close'].ewm(span=20, adjust=False).mean()
-    data['RSI'] = 100 - (100 / (1 + (data['close'].diff().clip(lower=0).rolling(window=14).mean() /
+    data['RSI'] = 100 - (100 / (1 + (data['close'].diff().clip(lower=0).rolling(window=14).mean() / 
                                     -data['close'].diff().clip(upper=0).rolling(window=14).mean())))
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
     data['Volatility'] = data['high'] - data['low']  # Intraday volatility
@@ -73,8 +73,17 @@ y_combined = pd.concat(y_combined, axis=0, ignore_index=True)
 # Train-test split
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
 
-# Use XGBoost (alternative to Random Forest)
-xgb_model = xgb.XGBClassifier(use_label_encoder=False, random_state=42)
+# Wrapper for XGBClassifier to ensure compatibility with Scikit-learn
+class XGBClassifierWrapper(xgb.XGBClassifier):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._estimator_type = "classifier"  # Explicitly set the type
+
+xgb_model = XGBClassifierWrapper(
+    use_label_encoder=False,
+    random_state=42,
+    eval_metric='logloss'
+)
 
 # Hyperparameter tuning for XGBoost
 param_grid = {
@@ -92,13 +101,6 @@ grid_search.fit(X_train, y_train)
 
 # Get the best model
 best_model = grid_search.best_estimator_
-
-# Feature importance
-feature_importances = best_model.feature_importances_
-sorted_indices = np.argsort(feature_importances)[::-1]
-print("Feature Importances:")
-for idx in sorted_indices:
-    print(f"{X_train.columns[idx]}: {feature_importances[idx]}")
 
 # Evaluate the model
 y_pred = best_model.predict(X_test)
