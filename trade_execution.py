@@ -208,11 +208,11 @@ def execute_trade(instrument):
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         
         # Set wider multipliers for SL and TP based on ATR for more room
-        sl_multiplier = 20   # Increased from 0.5 to 1.5
-        tp_multiplier = 40   # Increased from 1 to 2
+        sl_multiplier = 1   # Increased from 0.5 to 1.5
+        tp_multiplier = 2  # Increased from 1 to 2
         
-        stop_loss = current_price - (sl_multiplier * atr)
-        take_profit = current_price + (tp_multiplier * atr)
+        stop_loss = current_price - atr * sl_multiplier if prediction == 1 else current_price + atr * sl_multiplier
+        take_profit = current_price + atr * tp_multiplier if prediction == 1 else current_price - atr * tp_multiplier
 
         confidence = get_confidence(features, prediction)
         print(f"Confidence: {confidence:.2f}%")
