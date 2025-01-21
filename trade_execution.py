@@ -8,6 +8,7 @@ import joblib
 import numpy as np
 from datetime import datetime
 from dateutil.parser import isoparse
+import boto3  # AWS SDK for SNS
 
 # OANDA API credentials (replace with your own)
 ACCESS_TOKEN = os.getenv("API_KEY")
@@ -30,6 +31,10 @@ INSTRUMENTS = [
     'USD_CAD',  # US Dollar / Canadian Dollar
     'NZD_USD'   # New Zealand Dollar / US Dollar
 ]
+
+# SNS client for notifications
+sns_client = boto3.client('sns', region_name='eu-west-1')  # Adjust region as needed
+SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN")  # Ensure SNS_TOPIC_ARN is set in your environment
 
 def get_account_balance():
     try:
@@ -162,6 +167,7 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         return f"Error executing order: {e}"
 
 def execute_trade(instrument):
+    trade_details = []
     try:
         balance = get_account_balance()
         if not balance:
@@ -194,11 +200,29 @@ def execute_trade(instrument):
             return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
-        return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+        order_status = execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+        trade_details.append(order_status)
     except Exception as e:
         print(f"Error during trade execution: {e}")
         return "Error during trade execution."
 
+    return trade_details
+
+def send_sns_notification(trade_details):
+    message = "\n".join(trade_details)
+    sns_client.publish(
+        TopicArn=SNS_TOPIC_ARN,
+        Message=message,
+        Subject="Trading Orders Summary"
+    )
+    print("SNS notification sent.")
+
 if __name__ == "__main__":
+    all_trade_details = []
     for instrument in INSTRUMENTS:
-        print(execute_trade(instrument))
+        trade_result = execute_trade(instrument)
+        if isinstance(trade_result, list):
+            all_trade_details.extend(trade_result)
+
+    if all_trade_details:
+        send_sns_notification(all_trade_details)
