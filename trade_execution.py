@@ -234,7 +234,10 @@ def execute_trade(instrument):
             take_profit = current_price + min_distance
 
         # Execute the order
-        execute_ioc_order(instrument, "buy", 1000, stop_loss, take_profit, current_price)  # Adjust trade amount as needed
+        if prediction == 1:
+            execute_ioc_order(instrument, "buy", 1000, stop_loss, take_profit, current_price)  # Adjust trade amount as needed
+        elif prediction == -1:
+            execute_ioc_order(instrument, "sell", 1000, stop_loss, take_profit, current_price)  # Adjust trade amount as needed
     else:
         print(f"No data for {instrument}, skipping.")
 
