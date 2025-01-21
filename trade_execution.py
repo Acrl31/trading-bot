@@ -114,7 +114,7 @@ def calculate_atr(close_prices, high_prices, low_prices, period=14):
         lambda x: max(x['high'] - x['low'], abs(x['high'] - x['prev_close']), abs(x['low'] - x['prev_close'])),
         axis=1
     )
-    df['atr'] = df['tr'].ewm(span=period, min_periods=1).mean()
+    df['atr'] = df['tr'].rolling(window=period).mean()  # Using rolling mean instead of EMA
     atr_value = df['atr'].iloc[-1]
     return atr_value
 
