@@ -51,10 +51,10 @@ def get_latest_data(instrument):
 # Function to compute features for model prediction
 def create_features(close_prices, volumes, timestamps):
     features = {}
-    features['SMA_5'] = close_prices[-5:].mean() if len(close_prices) >= 5 else np.nan
-    features['SMA_20'] = close_prices[-20:].mean() if len(close_prices) >= 20 else np.nan
+    features['SMA_5'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
+    features['SMA_20'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['Price_Change'] = ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan
-    features['Volatility'] = close_prices[-20:].std() if len(close_prices) >= 20 else np.nan
+    features['Volatility'] = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['Volume_Change'] = ((volumes[-1] - volumes[-2]) / volumes[-2]) * 100 if len(volumes) >= 2 else np.nan
     features['Lag_Close_1'] = close_prices[-2] if len(close_prices) >= 2 else np.nan
     features['Lag_Close_2'] = close_prices[-3] if len(close_prices) >= 3 else np.nan
@@ -84,7 +84,7 @@ def execute_trade(instrument):
     prediction = MODEL.predict(features)
     print(f"Model predicted action for {instrument}: {prediction[0]}")
 
-    atr = close_prices[-20:].std() if len(close_prices) >= 20 else None
+    atr = np.std(close_prices[-20:]) if len(close_prices) >= 20 else None
     if atr is None:
         print(f"ATR not available for {instrument}")
         return
