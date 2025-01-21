@@ -151,7 +151,8 @@ def execute_trade(instrument):
         balance = get_account_balance()
         if not balance:
             return "Error: Unable to retrieve account balance."
-        trade_amount = balance * 0.01
+        
+        trade_amount = balance * 0.01  # Keep trade amount calculation as is
         market_data = get_latest_data(instrument)
         if not market_data:
             return "Error: Unable to fetch market data."
@@ -169,16 +170,20 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        stop_loss = current_price - atr * 2 if prediction == 1 else current_price + atr * 2
-        take_profit = current_price + atr * 4 if prediction == 1 else current_price - atr * 4
+
+        # Adjusting SL and TP multipliers to make them tighter
+        stop_loss = current_price - atr * 1.5 if prediction == 1 else current_price + atr * 1.5
+        take_profit = current_price + atr * 2 if prediction == 1 else current_price - atr * 2
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
+        
         confidence = get_confidence(features, prediction)
         if confidence < 30:
             return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
         return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+    
     except Exception as e:
         print(f"Error during trade execution: {e}")
         return "Error during trade execution."
