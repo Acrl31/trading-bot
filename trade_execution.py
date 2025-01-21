@@ -117,8 +117,8 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
     try:
         precision = get_instrument_precision(instrument)
         
-        # Round trade_amount to the allowed precision for the instrument
-        rounded_trade_amount = round(trade_amount, precision)  # Use the precision for the instrument
+        # Round trade_amount to the nearest whole number
+        rounded_trade_amount = int(round(trade_amount))
         
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
