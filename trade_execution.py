@@ -38,7 +38,7 @@ def get_latest_data(instrument):
     
     # Request data from OANDA
     try:
-        response = oandapyV20.endpoints.Instruments.InstrumentsCandles(instrument=instrument, params=params)
+        response = oandapyV20.endpoints.instruments.InstrumentsCandles(instrument=instrument, params=params)
         CLIENT.request(response)
         candles = response.response['candles']
         
