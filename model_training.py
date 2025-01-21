@@ -115,14 +115,19 @@ def train_model(X, y):
     feature_importance = model.feature_importances_
     feature_names = [f"Feature {i}" for i in range(X.shape[1])]
 
-    # Save the feature importance plot
-    plt.figure(figsize=(10, 6))
-    plt.barh(feature_names, feature_importance)
-    plt.xlabel("Feature Importance")
-    plt.title("Random Forest Feature Importance")
-    plot_path = "feature_importance.png"  # Save the plot as a PNG file
-    plt.savefig(plot_path)
-    print(f"Feature importance plot saved to {plot_path}")
+    # Combine feature names with their importance values
+    feature_importance_data = zip(feature_names, feature_importance)
+    
+    # Sort the features based on importance (highest first)
+    sorted_features = sorted(feature_importance_data, key=lambda x: x[1], reverse=True)
+
+    # Save sorted feature importance to a text file
+    with open("sorted_feature_importance.txt", "w") as f:
+        f.write("Feature Importance (Most Important to Least Important):\n\n")
+        for feature, importance in sorted_features:
+            f.write(f"{feature}: {importance:.4f}\n")
+    
+    print("Feature importance saved to sorted_feature_importance.txt.")
 
     return model
 
