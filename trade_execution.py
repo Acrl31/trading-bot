@@ -178,7 +178,7 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
         
-        print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
+        print(f"Order Details - Instrument: {instrument}, Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
         order_payload = {
             "order": {
@@ -211,7 +211,6 @@ def execute_trade(instrument):
         current_price = data['prices']['buy']  # Using buy price for now
         
         atr = calculate_atr_scalping(close_prices, high_prices, low_prices)
-        print(f"ATR value: {atr}")
 
         features_df = create_features(open_prices, high_prices, low_prices, close_prices, volumes, data['timestamps'])
         prediction = MODEL.predict(features_df)[0]
@@ -222,13 +221,13 @@ def execute_trade(instrument):
             return
 
         # Calculate stop loss and take profit
-        sl_multiplier = 0.5  # Adjust as necessary
-        tp_multiplier = 1  # Adjust as necessary
+        sl_multiplier = 0.25  # Adjust as necessary
+        tp_multiplier = 0.5  # Adjust as necessary
         stop_loss = current_price - atr * sl_multiplier
         take_profit = current_price + atr * tp_multiplier
 
         # Ensure stop loss and take profit are far enough from current price
-        min_distance = 0.0010  # 10 pips for EUR/JPY
+        min_distance = 0.0005   # 10 pips for EUR/JPY
         if abs(stop_loss - current_price) < min_distance:
             stop_loss = current_price + min_distance
         if abs(take_profit - current_price) < min_distance:
