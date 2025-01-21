@@ -1,108 +1,87 @@
-import os
 import pandas as pd
+import os
 import numpy as np
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
-from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
-import joblib
-from concurrent.futures import ProcessPoolExecutor
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.preprocessing import StandardScaler
 
-# Directory containing the data files
+# Directory containing data files
 DATA_DIR = "data"
-INSTRUMENTS = [
-    'EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD', 'USD_CHF', 'EUR_JPY', 'GBP_JPY', 'EUR_GBP', 'USD_CAD', 'NZD_USD'
-]
 
-# Function to preprocess the data
-def preprocess_data(file_path):
+# Parameters for training
+TARGET_LOOKAHEAD = 5  # Number of steps ahead to predict
+TEST_SIZE = 0.2       # Proportion of data for testing
+RANDOM_STATE = 42     # Reproducibility
+
+def load_data():
     """
-    Load and preprocess data for model training.
+    Load and combine historical data for all instruments.
     """
-    data = pd.read_csv(file_path)
-    
-    # Feature engineering
-    data['SMA_5'] = data['close'].rolling(window=5).mean()
-    data['SMA_20'] = data['close'].rolling(window=20).mean()
-    data['EMA_5'] = data['close'].ewm(span=5, adjust=False).mean()
-    data['EMA_20'] = data['close'].ewm(span=20, adjust=False).mean()
-    data['RSI'] = 100 - (100 / (1 + (data['close'].diff().clip(lower=0).rolling(window=14).mean() / 
-                                    -data['close'].diff().clip(upper=0).rolling(window=14).mean())))
-    data['Price_Change'] = data['close'].pct_change()
-    data['Volatility'] = data['high'] - data['low']
-    data['Volume_Change'] = data['volume'].pct_change()
-    data['Lag_Close_1'] = data['close'].shift(1)
-    data['Lag_Volume_1'] = data['volume'].shift(1)
+    all_data = []
+    for file in os.listdir(DATA_DIR):
+        if file.endswith("_data.csv"):
+            file_path = os.path.join(DATA_DIR, file)
+            df = pd.read_csv(file_path)
+            df['instrument'] = file.split("_")[0]  # Add instrument column
+            all_data.append(df)
+    return pd.concat(all_data, ignore_index=True)
 
-    # Drop missing values and set target
-    data.dropna(inplace=True)
-    data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)
+def preprocess_data(df):
+    """
+    Preprocess data: feature engineering, target creation, and scaling.
+    """
+    # Convert timestamp to datetime and set as index
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df = df.set_index('timestamp')
 
-    # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'EMA_5', 'EMA_20', 'RSI', 'Price_Change', 'Volatility', 'Volume_Change', 'Lag_Close_1', 'Lag_Volume_1']]
-    y = data['Target']
-    
-    return X, y
+    # Feature engineering: Add moving averages, RSI, etc.
+    df['returns'] = df['close'].pct_change()
+    df['volatility'] = df['returns'].rolling(window=10).std()
 
-# Efficiently process data for multiple instruments
-def process_instrument_data(instrument):
-    file_path = os.path.join(DATA_DIR, f"{instrument}_data.csv")
-    if os.path.exists(file_path):
-        print(f"Processing data for {instrument}...")
-        return preprocess_data(file_path)
-    else:
-        print(f"Data file for {instrument} not found. Skipping...")
-        return None, None
+    # Create target: Predict if price will go up or down
+    df['future_price'] = df['close'].shift(-TARGET_LOOKAHEAD)
+    df['target'] = (df['future_price'] > df['close']).astype(int)
 
-# Process data in parallel
-with ProcessPoolExecutor() as executor:
-    results = list(executor.map(process_instrument_data, INSTRUMENTS))
+    # Drop NaN rows (from feature and target creation)
+    df = df.dropna()
 
-# Combine all data into single datasets
-X_combined = []
-y_combined = []
+    # Separate features and target
+    features = ['open', 'high', 'low', 'close', 'volume', 'returns', 'volatility']
+    X = df[features]
+    y = df['target']
 
-for X, y in results:
-    if X is not None and y is not None:
-        X_combined.append(X)
-        y_combined.append(y)
+    # Standardize features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-X_combined = pd.concat(X_combined, axis=0, ignore_index=True)
-y_combined = pd.concat(y_combined, axis=0, ignore_index=True)
+    return X_scaled, y
 
-# Train-test split
-X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
+def train_model(X, y):
+    """
+    Train a Random Forest model on the processed data.
+    """
+    # Split into train and test sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-# Use Random Forest Classifier
-rf_model = RandomForestClassifier(random_state=42)
+    # Train a Random Forest Classifier
+    model = RandomForestClassifier(n_estimators=100, random_state=RANDOM_STATE, n_jobs=-1)
+    model.fit(X_train, y_train)
 
-# Hyperparameter tuning
-param_grid = {
-    'n_estimators': [50, 100, 200],
-    'max_depth': [3, 5, 7, None],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4]
-}
+    # Evaluate the model
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"Accuracy: {accuracy:.2f}")
+    print("Classification Report:")
+    print(classification_report(y_test, y_pred))
 
-grid_search = GridSearchCV(estimator=rf_model, param_grid=param_grid, cv=3, n_jobs=-1, verbose=2)
-grid_search.fit(X_train, y_train)
+    return model
 
-# Get the best model
-best_model = grid_search.best_estimator_
-
-# Evaluate the model
-y_pred = best_model.predict(X_test)
-print("Model Performance:")
-print(classification_report(y_test, y_pred))
-print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
-print(f"Precision: {precision_score(y_test, y_pred, average='weighted')}")
-print(f"Recall: {recall_score(y_test, y_pred, average='weighted')}")
-print(f"F1-Score: {f1_score(y_test, y_pred, average='weighted')}")
-
-# Save the trained model
-MODEL_DIR = "models"
-if not os.path.exists(MODEL_DIR):
-    os.makedirs(MODEL_DIR)
-
-model_file_path = os.path.join(MODEL_DIR, "scalping_model_rf.pkl")
-joblib.dump(best_model, model_file_path)
-print(f"Model saved to {model_file_path}")
+if __name__ == "__main__":
+    print("Loading data...")
+    data = load_data()
+    print("Preprocessing data...")
+    X, y = preprocess_data(data)
+    print("Training model...")
+    trained_model = train_model(X, y)
+    print("Model training complete.")
