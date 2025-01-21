@@ -120,10 +120,12 @@ def calculate_atr(close_prices, high_prices, low_prices, period=14):
 
 def get_confidence(features, prediction):
     try:
+        prob = MODEL.predict_proba(features)[0]  # Get probability for both classes
+        print(f"Probabilities: {prob}")  # Check what probabilities are returned
         if prediction == 1:
-            confidence = MODEL.predict_proba(features)[0][1]
+            confidence = prob[1]  # Probability of class 1
         elif prediction == -1:
-            confidence = MODEL.predict_proba(features)[0][0]
+            confidence = prob[0]  # Probability of class -1
         else:
             confidence = 0
         return confidence * 100
