@@ -6,6 +6,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
+import joblib  # For saving/loading models
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -144,6 +145,10 @@ def train_model(X, y):
     print(f"Final Test Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
+
+    # Save the trained model
+    joblib.dump(model, 'trained_model.pkl')
+    print("Model saved to 'trained_model.pkl'")
 
     return model
 
