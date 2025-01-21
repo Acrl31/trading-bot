@@ -147,7 +147,7 @@ def get_instrument_precision(instrument):
     }
     return precision_map.get(instrument, 5)  # Default to 5 if precision is unknown
 
-def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, atr, slippage=0.0005):
+def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
     try:
         precision = get_instrument_precision(instrument)
         
@@ -158,17 +158,16 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
         
-        # Dynamically adjust stop loss and take profit based on ATR
-        atr_multiplier = 2  # You can adjust this multiplier based on your risk preferences
-        adjusted_stop_loss = stop_loss - atr * atr_multiplier if side == "buy" else stop_loss + atr * atr_multiplier
-        adjusted_take_profit = take_profit + atr * atr_multiplier if side == "buy" else take_profit - atr * atr_multiplier
+        # Ensure stop loss and take profit are at a reasonable distance
+        slippage_stop_loss = stop_loss if side == "buy" else current_price + 0.001
+        slippage_take_profit = take_profit if side == "buy" else current_price - 0.001
         
         # Round the prices
-        rounded_stop_loss = round(adjusted_stop_loss, precision)
-        rounded_take_profit = round(adjusted_take_profit, precision)
+        rounded_stop_loss = round(slippage_stop_loss, precision)
+        rounded_take_profit = round(slippage_take_profit, precision)
         
         # Ensure there's a minimum difference between stop loss and take profit
-        min_distance = atr * 1.5  # Ensure a minimum distance of 1.5x ATR
+        min_distance = 0.0010  # 10 pips for EUR/JPY
         if abs(rounded_stop_loss - rounded_take_profit) < min_distance:
             if side == "buy":
                 rounded_take_profit = rounded_stop_loss + min_distance
@@ -215,7 +214,7 @@ def execute_trade(instrument):
         prediction = MODEL.predict(features_df)[0]
         confidence = get_confidence(features_df, prediction)
 
-        if confidence < 60:
+        if confidence < 70:
             print(f"Low confidence ({confidence}%). Skipping trade for {instrument}.")
             return
 
