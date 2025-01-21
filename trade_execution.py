@@ -172,7 +172,7 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
-        return f"Market {side} order placed for {instrument}."
+        return f"Market {side} order placed for {instrument}.\n"
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
@@ -212,7 +212,7 @@ def execute_trade(instrument):
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
         if confidence < 70:
-            return "Confidence too low to execute trade."
+            return "Confidence too low to execute trade.\n"
 
         side = "buy" if prediction == 1 else "sell"
         return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
