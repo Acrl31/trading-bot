@@ -216,6 +216,11 @@ def execute_trade(instrument):
 
         confidence = get_confidence(features, prediction)
         print(f"Confidence: {confidence:.2f}%")
+        
+        # Only place an order if confidence is over 70%
+        if confidence < 70:
+            return f"Confidence too low ({confidence:.2f}%), not placing trade."
+
         return execute_ioc_order(instrument, "buy" if prediction == 1 else "sell", trade_amount, stop_loss, take_profit, current_price)
     except Exception as e:
         print(f"Error executing trade: {e}")
