@@ -161,7 +161,10 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
-        return f"Market {side} order placed for {instrument}."
+        
+        # Create trade message
+        order_message = f"{side.capitalize()} order placed for {instrument}. {rounded_trade_amount} units @ {rounded_price}. SL: {rounded_stop_loss}, TP: {rounded_take_profit}"
+        return order_message
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
@@ -190,7 +193,7 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        # Set tighter multipliers for SL and        TP for scalping
+        # Set tighter multipliers for SL and TP for scalping
         stop_loss = current_price - atr * 0.1 if prediction == 1 else current_price + atr * 0.1
         take_profit = current_price + atr * 0.2 if prediction == 1 else current_price - atr * 0.2
 
