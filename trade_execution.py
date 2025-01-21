@@ -128,29 +128,29 @@ def get_instrument_precision(instrument):
     }
     return precision_map.get(instrument, 5)  # Default to 5 if not specified
 
-def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
+def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0002):
     try:
         # Get the instrument's pip size
         precision = get_instrument_precision(instrument)
         pip_size = 10 ** -precision  # For EUR/USD, pip size would be 0.0001 for precision=5
 
-        # Log current price, limit price, and trade amount
-        print(f"Current Price: {current_price}, Trade Amount: {trade_amount}")
+        # Adjust the price for slippage
+        if side == "buy":
+            slippage_adjustment = current_price + slippage
+        else:
+            slippage_adjustment = current_price - slippage
 
         # Round price, stop loss, and take profit to the correct precision
-        rounded_price = round(current_price, precision)
+        rounded_price = round(slippage_adjustment, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
-
-        # Log the rounded values
-        print(f"Market Order Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
 
         # Construct the order payload for market order
         order_payload = {
             "order": {
                 "units": trade_amount if side == "buy" else -trade_amount,
                 "instrument": instrument,
-                "timeInForce": "FOK",  # Fill Or Kill, meaning execute immediately
+                "timeInForce": "IOC",  # Immediate Or Cancel
                 "type": "MARKET",
                 "stopLossOnFill": {"price": str(rounded_stop_loss)},
                 "takeProfitOnFill": {"price": str(rounded_take_profit)},
@@ -158,25 +158,19 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
             }
         }
 
-        # Log the order payload
-        print(f"Order Payload: {order_payload}")
-
         # Send the request for market order
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
 
-        # Log full response for debugging
-        print(f"Order Response: {response}")
-
         return f"Market {side} order placed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
 
     except oandapyV20.exceptions.V20Error as e:
-        print(f"Error executing FOK order: {e}")
+        print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
 
 def execute_trade(instrument):
     try:
-        balance = get_account_balance()  # Changed to get_account_balance()
+        balance = get_account_balance()
         if not balance:
             return "Error: Unable to retrieve account balance."
         
@@ -207,7 +201,7 @@ def execute_trade(instrument):
             return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
-        return execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+        return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
     except Exception as e:
         print(f"Error during trade execution: {e}")
         return "Error during trade execution."
