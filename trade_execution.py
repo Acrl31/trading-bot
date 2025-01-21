@@ -17,7 +17,7 @@ CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 # Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
 MODEL = joblib.load('models/trading_model.pkl')
 
-# List of instruments to trade (excluding Gold and Silver)
+# List of instruments to trade
 INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD']
 
 def get_account_balance():
@@ -109,6 +109,15 @@ def get_confidence(features, prediction):
         return 0
 
 def get_instrument_precision(instrument):
+    """
+    Get the precision allowed for a specific instrument.
+    
+    Parameters:
+        instrument (str): The instrument to trade (e.g., "XAG_USD").
+    
+    Returns:
+        int: The number of decimal places allowed.
+    """
     precision_map = {
         "EUR_USD": 5,  # Euro/USD
         "USD_JPY": 3,  # USD/JPY
@@ -119,24 +128,33 @@ def get_instrument_precision(instrument):
 
 def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
     try:
+        # Get the instrument's precision
         precision = get_instrument_precision(instrument)
-        pip_size = 10 ** -precision
+        pip_size = 10 ** -precision  # For EUR/USD, pip size would be 0.0001 for precision=5
 
+        # Adjust the price for slippage
         if side == "buy":
             slippage_adjustment = current_price + slippage
         else:
             slippage_adjustment = current_price - slippage
 
-        # Round prices for precision
+        # Log price adjustments for debugging
+        print(f"Slippage Adjustment: {slippage_adjustment}, Original Price: {current_price}")
+
+        # Round the price, stop loss, and take profit to the correct precision
         rounded_price = round(slippage_adjustment, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
 
+        # Log the rounded prices for debugging
+        print(f"Rounded Order Details - Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
+
+        # Construct the order payload for market order
         order_payload = {
             "order": {
                 "units": trade_amount if side == "buy" else -trade_amount,
                 "instrument": instrument,
-                "timeInForce": "IOC",
+                "timeInForce": "IOC",  # Immediate Or Cancel
                 "type": "MARKET",
                 "stopLossOnFill": {"price": str(rounded_stop_loss)},
                 "takeProfitOnFill": {"price": str(rounded_take_profit)},
@@ -144,8 +162,11 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
             }
         }
 
+        # Send the request for the market order
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
+
+        # Log the response for debugging
         print(f"Order Response: {response}")
 
         return f"Market {side} order placed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
@@ -179,11 +200,13 @@ def execute_trade(instrument):
             market_data['low_prices']
         )
 
+        # Assign current price based on the prediction
+        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
+
         # Adjust stop loss and take profit based on ATR
         stop_loss = current_price - atr * 0.5  # Smaller stop loss, 50% of ATR
         take_profit = current_price + atr * 1.5  # Larger take profit, 150% of ATR
 
-        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         confidence = get_confidence(features, prediction)
         
         if confidence < 30:
@@ -195,6 +218,7 @@ def execute_trade(instrument):
         print(f"Error during trade execution: {e}")
         return "Error during trade execution."
 
-if __name__ == "__main__":
-    for instrument in INSTRUMENTS:
-        print(execute_trade(instrument))
+# Example usage
+for instrument in INSTRUMENTS:
+    result = execute_trade(instrument)
+    print(result)
