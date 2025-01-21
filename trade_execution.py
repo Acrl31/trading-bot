@@ -107,21 +107,20 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
                         'ema_long', 'bollinger_upper', 'bollinger_lower', 'rsi', 'macd', 'macd_signal', 
                         'macd_diff', 'high_low_diff', 'open_close_diff']]
 
-def calculate_atr(close_prices, high_prices, low_prices, period=14):
+def calculate_atr_scalping(close_prices, high_prices, low_prices, period=5):
     df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
     df['prev_close'] = df['close'].shift(1)
     df['tr'] = df[['high', 'low', 'prev_close']].apply(
         lambda x: max(x['high'] - x['low'], abs(x['high'] - x['prev_close']), abs(x['low'] - x['prev_close'])),
         axis=1
     )
-    df['atr'] = df['tr'].rolling(window=period).mean()  # Using rolling mean instead of EMA
+    df['atr'] = df['tr'].rolling(window=period).mean()
     atr_value = df['atr'].iloc[-1]
     return atr_value
 
 def get_confidence(features, prediction):
     try:
         prob = MODEL.predict_proba(features)[0]
-        # Adjust the condition to handle 0 and 1 instead of -1 and 1
         if prediction == 1:
             confidence = prob[1]  # Probability of class 1 (positive)
         elif prediction == 0:
@@ -200,7 +199,7 @@ def execute_trade(instrument):
             market_data['timestamps']
         )
         prediction = MODEL.predict(features)[0]
-        atr = calculate_atr(
+        atr = calculate_atr_scalping(
             market_data['close_prices'],
             market_data['high_prices'],
             market_data['low_prices']
@@ -212,25 +211,17 @@ def execute_trade(instrument):
         sl_multiplier = 1    # Increased from 0.5 to 1.5
         tp_multiplier = 2    # Increased from 1 to 2
         
-        stop_loss = current_price - atr * sl_multiplier if prediction == 1 else current_price + atr * sl_multiplier
-        take_profit = current_price + atr * tp_multiplier if prediction == 1 else current_price - atr * tp_multiplier
+        stop_loss = current_price - (sl_multiplier * atr)
+        take_profit = current_price + (tp_multiplier * atr)
 
-        # Ensure SL and TP are within a reasonable range
-        if abs(stop_loss - current_price) < atr * 0.5 or abs(take_profit - current_price) < atr * 1:
-            return "Error: SL or TP too tight."
-
-        print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
-        print(f"Confidence: {confidence}")
-        if confidence < 70:
-            return "Confidence too low to execute trade."
-
-        side = "buy" if prediction == 1 else "sell"
-        return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+        print(f"Confidence: {confidence:.2f}%")
+        return execute_ioc_order(instrument, "buy" if prediction == 1 else "sell", trade_amount, stop_loss, take_profit, current_price)
     except Exception as e:
-        print(f"Error during trade execution: {e}")
-        return "Error during trade execution."
+        print(f"Error executing trade: {e}")
+        return f"Error executing trade: {e}"
 
-if __name__ == "__main__":
-    for instrument in INSTRUMENTS:
-        print(execute_trade(instrument))
+# Run the trading function for all instruments
+for instrument in INSTRUMENTS:
+    print(f"Trading {instrument}...")
+    print(execute_trade(instrument))
