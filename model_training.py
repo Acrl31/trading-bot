@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
@@ -95,7 +95,7 @@ def train_model(X, y):
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-    # Train the model with a set of hyperparameters
+    # Train the model with the best hyperparameters
     model = GradientBoostingClassifier(
         n_estimators=200,
         max_depth=15,
@@ -139,6 +139,11 @@ if __name__ == "__main__":
     data = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
+    
+    # Remove low importance features (example)
+    low_importance_features = [7, 2, 1, 10]  # Add indices for features with low importance
+    X = np.delete(X, low_importance_features, axis=1)  # Remove these features from X
+    
     print("Training model...")
     trained_model = train_model(X, y)
     print("Model training complete.")
