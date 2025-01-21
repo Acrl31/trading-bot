@@ -8,7 +8,6 @@ import joblib
 import numpy as np
 from datetime import datetime
 from dateutil.parser import isoparse
-import boto3  # AWS SDK for SNS
 
 # OANDA API credentials (replace with your own)
 ACCESS_TOKEN = os.getenv("API_KEY")
@@ -32,10 +31,6 @@ INSTRUMENTS = [
     'NZD_USD'   # New Zealand Dollar / US Dollar
 ]
 
-# SNS client for notifications
-sns_client = boto3.client('sns', region_name='eu-west-1')  # Adjust region as needed
-SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN")  # Ensure SNS_TOPIC_ARN is set in your environment
-
 def get_account_balance():
     try:
         account_request = accounts.AccountDetails(ACCOUNT_ID)
@@ -48,7 +43,7 @@ def get_account_balance():
 
 def get_latest_data(instrument):
     try:
-        params = {"granularity": "M1", "count": 100, "price": "M"}
+        params = {"granularity": "H1", "count": 100, "price": "M"}
         request = instruments.InstrumentsCandles(instrument, params=params)
         response = CLIENT.request(request)
         candles = response['candles']
@@ -161,17 +156,12 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
-        print(f"Order Response: {response}")
-        
-        # Create trade message
-        order_message = f"{side.capitalize()} order placed for {instrument}. {rounded_trade_amount} units @ {rounded_price}. SL: {rounded_stop_loss}, TP: {rounded_take_profit}"
-        return order_message
+        return f"Market {side} order placed for {instrument}."
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
 
 def execute_trade(instrument):
-    trade_details = []
     try:
         balance = get_account_balance()
         if not balance:
@@ -194,9 +184,9 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        # Set tighter multipliers for SL and TP for scalping
-        stop_loss = current_price - atr * 0.15 if prediction == 1 else current_price + atr * 0.15
-        take_profit = current_price + atr * 0.3 if prediction == 1 else current_price - atr * 0.3
+        # Set tighter multipliers for SL and        TP for scalping
+        stop_loss = current_price - atr * 0.1 if prediction == 1 else current_price + atr * 0.1
+        take_profit = current_price + atr * 0.2 if prediction == 1 else current_price - atr * 0.2
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
@@ -204,29 +194,11 @@ def execute_trade(instrument):
             return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
-        order_status = execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
-        trade_details.append(order_status)
+        return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
     except Exception as e:
         print(f"Error during trade execution: {e}")
         return "Error during trade execution."
 
-    return trade_details
-
-def send_sns_notification(trade_details):
-    message = "\n".join(trade_details)
-    sns_client.publish(
-        TopicArn=SNS_TOPIC_ARN,
-        Message=message,
-        Subject="Trading Orders Summary"
-    )
-    print("SNS notification sent.")
-
 if __name__ == "__main__":
-    all_trade_details = []
     for instrument in INSTRUMENTS:
-        trade_result = execute_trade(instrument)
-        if isinstance(trade_result, list):
-            all_trade_details.extend(trade_result)
-
-    if all_trade_details:
-        send_sns_notification(all_trade_details)
+        print(execute_trade(instrument))
