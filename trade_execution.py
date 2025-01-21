@@ -209,7 +209,7 @@ def execute_trade(instrument):
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         
         # Set wider multipliers for SL and TP based on ATR for more room
-        sl_multiplier = 1.5  # Increased from 0.5 to 1.5
+        sl_multiplier = 1    # Increased from 0.5 to 1.5
         tp_multiplier = 2    # Increased from 1 to 2
         
         stop_loss = current_price - atr * sl_multiplier if prediction == 1 else current_price + atr * sl_multiplier
