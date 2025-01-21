@@ -1,11 +1,13 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
+from sklearn.model_selection import StratifiedKFold
+import matplotlib.pyplot as plt
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -58,6 +60,11 @@ def add_features(df):
     df['macd_diff'] = df['macd'] - df['macd_signal']
     df['high_low_diff'] = df['high'] - df['low']
     df['open_close_diff'] = df['open'] - df['close']
+    
+    # Adding lagged features for 'close' and 'returns'
+    df['close_lag'] = df['close'].shift(1)
+    df['returns_lag'] = df['returns'].shift(1)
+
     return df.dropna()
 
 def preprocess_data(df):
@@ -89,26 +96,28 @@ def preprocess_data(df):
 
 def train_model(X, y):
     """
-    Train a Random Forest model and evaluate its performance with hyperparameter tuning.
+    Train a Random Forest model and evaluate its performance.
     """
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-    # Hyperparameter tuning using GridSearchCV
-    param_grid = {
-        'n_estimators': [100, 200],
-        'max_depth': [5, 10, 15],
-        'min_samples_split': [2, 5],
-        'min_samples_leaf': [1, 2]
-    }
-    grid_search = GridSearchCV(RandomForestClassifier(random_state=RANDOM_STATE, n_jobs=-1), param_grid, cv=3, n_jobs=-1, verbose=1)
-    grid_search.fit(X_train, y_train)
-    best_params = grid_search.best_params_
+    # Define Random Forest with the best hyperparameters
+    model = RandomForestClassifier(
+        n_estimators=200,  # Best hyperparameter found
+        max_depth=15,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        class_weight='balanced',  # Handle class imbalance
+        random_state=RANDOM_STATE,
+        n_jobs=-1
+    )
 
-    print(f"Best hyperparameters: {best_params}")
+    # Perform cross-validation
+    cv = StratifiedKFold(n_splits=3, random_state=RANDOM_STATE, shuffle=True)
+    cross_val_scores = cross_val_score(model, X, y, cv=cv, scoring='accuracy')
+    print(f"Cross-Validation Accuracy: {cross_val_scores.mean():.2f} ± {cross_val_scores.std():.2f}")
 
-    # Train the model with the best parameters
-    model = RandomForestClassifier(**best_params, random_state=RANDOM_STATE, n_jobs=-1)
+    # Train the model
     model.fit(X_train, y_train)
 
     # Evaluate the model
