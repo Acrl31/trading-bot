@@ -120,10 +120,14 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         # Round trade_amount to the allowed precision for the instrument
         rounded_trade_amount = round(trade_amount, precision)  # Round to the instrument's precision
         
+        # Adjust the slippage price by the side and round to precision
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
+        
+        # Round stop loss and take profit to instrument precision
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
+        
         print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
         order_payload = {
