@@ -18,7 +18,18 @@ CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 MODEL = joblib.load('models/trading_model.pkl')
 
 # List of instruments to trade (same as in your model)
-INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD']
+INSTRUMENTS = [
+    'EUR_USD',  # Euro / US Dollar
+    'USD_JPY',  # US Dollar / Japanese Yen
+    'GBP_USD',  # British Pound / US Dollar
+    'AUD_USD',  # Australian Dollar / US Dollar
+    'USD_CHF',  # US Dollar / Swiss Franc
+    'EUR_JPY',  # Euro / Japanese Yen
+    'GBP_JPY',  # British Pound / Japanese Yen
+    'EUR_GBP',  # Euro / British Pound
+    'USD_CAD',  # US Dollar / Canadian Dollar
+    'NZD_USD'   # New Zealand Dollar / US Dollar
+]
 
 def get_account_balance():
     try:
@@ -106,10 +117,16 @@ def get_confidence(features, prediction):
 
 def get_instrument_precision(instrument):
     precision_map = {
-        "EUR_USD": 5,
-        "USD_JPY": 3,
-        "GBP_USD": 5,
-        "AUD_USD": 4,  # Change precision for AUD_USD if needed
+        "EUR_USD": 5,  # Euro / US Dollar
+        "USD_JPY": 3,  # US Dollar / Japanese Yen
+        "GBP_USD": 5,  # British Pound / US Dollar
+        "AUD_USD": 5,  # Australian Dollar / US Dollar
+        "USD_CHF": 5,  # US Dollar / Swiss Franc
+        "EUR_JPY": 3,  # Euro / Japanese Yen
+        "GBP_JPY": 3,  # British Pound / Japanese Yen
+        "EUR_GBP": 5,  # Euro / British Pound
+        "USD_CAD": 5,  # US Dollar / Canadian Dollar
+        "NZD_USD": 5   # New Zealand Dollar / US Dollar
     }
     return precision_map.get(instrument, 5)  # Default to 5 if precision is unknown
 
