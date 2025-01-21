@@ -34,29 +34,13 @@ def add_features(df):
     Add technical and statistical features to the data.
     """
     df['returns'] = df['close'].pct_change()
-    df['volatility'] = df['returns'].rolling(window=10).std()
     df['ma_short'] = df['close'].rolling(window=5).mean()
     df['ma_long'] = df['close'].rolling(window=20).mean()
-    df['ma_diff'] = df['ma_short'] - df['ma_long']
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
     df['ema_diff'] = df['ema_short'] - df['ema_long']
-    rolling_std = df['close'].rolling(window=20).std()
-    df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
-    df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
-    df['bollinger_bandwidth'] = df['bollinger_upper'] - df['bollinger_lower']
-    delta = df['close'].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(window=14).mean()
-    avg_loss = pd.Series(loss).rolling(window=14).mean()
-    rs = avg_gain / (avg_loss + 1e-9)
-    df['rsi'] = 100 - (100 / (1 + rs))
-    ema_12 = df['close'].ewm(span=12, adjust=False).mean()
-    ema_26 = df['close'].ewm(span=26, adjust=False).mean()
-    df['macd'] = ema_12 - ema_26
-    df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-    df['macd_diff'] = df['macd'] - df['macd_signal']
+    df['macd'] = df['ema_short'] - df['ema_long']  # Removed original 'macd' related columns
+    df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()  # Removed the 'macd_diff' feature
     df['high_low_diff'] = df['high'] - df['low']
     df['open_close_diff'] = df['open'] - df['close']
     return df.dropna()
@@ -110,24 +94,6 @@ def train_model(X, y):
     print(f"Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
-
-    # Feature importance analysis
-    feature_importance = model.feature_importances_
-    feature_names = [f"Feature {i}" for i in range(X.shape[1])]
-
-    # Combine feature names with their importance values
-    feature_importance_data = zip(feature_names, feature_importance)
-    
-    # Sort the features based on importance (highest first)
-    sorted_features = sorted(feature_importance_data, key=lambda x: x[1], reverse=True)
-
-    # Save sorted feature importance to a text file
-    with open("sorted_feature_importance.txt", "w") as f:
-        f.write("Feature Importance (Most Important to Least Important):\n\n")
-        for feature, importance in sorted_features:
-            f.write(f"{feature}: {importance:.4f}\n")
-    
-    print("Feature importance saved to sorted_feature_importance.txt.")
 
     return model
 
