@@ -128,9 +128,9 @@ def get_instrument_precision(instrument):
     }
     return precision_map.get(instrument, 5)  # Default to 5 if not specified
 
-def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0002):
+def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
     try:
-        # Get the instrument's pip size
+        # Get the instrument's precision
         precision = get_instrument_precision(instrument)
         pip_size = 10 ** -precision  # For EUR/USD, pip size would be 0.0001 for precision=5
 
@@ -140,10 +140,16 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         else:
             slippage_adjustment = current_price - slippage
 
-        # Round price, stop loss, and take profit to the correct precision
+        # Log price adjustments for debugging
+        print(f"Slippage Adjustment: {slippage_adjustment}, Original Price: {current_price}")
+
+        # Round the price, stop loss, and take profit to the correct precision
         rounded_price = round(slippage_adjustment, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
+
+        # Log the rounded prices for debugging
+        print(f"Rounded Order Details - Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
 
         # Construct the order payload for market order
         order_payload = {
@@ -158,9 +164,12 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
             }
         }
 
-        # Send the request for market order
+        # Send the request for the market order
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
+
+        # Log the response for debugging
+        print(f"Order Response: {response}")
 
         return f"Market {side} order placed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
 
