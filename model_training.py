@@ -1,138 +1,312 @@
 import os
 import pandas as pd
-import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
-from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
+import oandapyV20
+import oandapyV20.endpoints.orders as orders
+import oandapyV20.endpoints.accounts as accounts
+import oandapyV20.endpoints.instruments as instruments
 import joblib
+import numpy as np
+from datetime import datetime
+from dateutil.parser import isoparse
 
-# Directory containing the data files
-DATA_DIR = "data"
-INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
+# OANDA API credentials (replace with your own)
+ACCESS_TOKEN = os.getenv("API_KEY")
+ACCOUNT_ID = os.getenv("ACCOUNT_ID")
+CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 
-# Function to preprocess the data
-def preprocess_data(file_path):
+# Load the trained machine learning model
+MODEL = joblib.load('models/trading_model.pkl')
+
+# List of instruments to trade (gold and silver removed)
+INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD']
+
+def get_account_balance():
     """
-    Load and preprocess data for model training.
+    Fetch the current balance of the account.
     """
-    data = pd.read_csv(file_path)
-    
-    # Feature engineering using all available data
-    data['SMA_5'] = data['close'].rolling(window=5).mean()
-    data['SMA_20'] = data['close'].rolling(window=20).mean()
-    data['Price_Change'] = data['close'].pct_change()  # Percent change in price
-    data['Volatility'] = data['high'] - data['low']  # Intraday volatility
-    data['Volume_Change'] = data['volume'].pct_change()  # Percent change in volume
+    try:
+        account_request = accounts.AccountDetails(ACCOUNT_ID)
+        response = CLIENT.request(account_request)
+        balance = float(response['account']['balance'])
+        return balance
+    except oandapyV20.exceptions.V20Error as e:
+        print(f"Error fetching account balance: {e}")
+        return None
 
-    # Lag features to account for historical data
-    data['Lag_Close_1'] = data['close'].shift(1)
-    data['Lag_Close_2'] = data['close'].shift(2)
-    data['Lag_Volume_1'] = data['volume'].shift(1)
+def get_latest_data(instrument):
+    """
+    Fetch the latest market data for the given instrument.
+    """
+    try:
+        params = {"granularity": "H1", "count": 100, "price": "M"}
+        request = instruments.InstrumentsCandles(instrument, params=params)
+        response = CLIENT.request(request)
+        candles = response['candles']
+        market_data = {
+            'close_prices': [float(c['mid']['c']) for c in candles],
+            'high_prices': [float(c['mid']['h']) for c in candles],
+            'low_prices': [float(c['mid']['l']) for c in candles],
+            'volumes': [c['volume'] for c in candles],
+            'timestamps': [c['time'] for c in candles],
+            'prices': {
+                'buy': float(candles[-1]['mid']['c']),
+                'sell': float(candles[-1]['mid']['c'])
+            }
+        }
+        return market_data
+    except Exception as e:
+        print(f"Error fetching data for {instrument}: {e}")
+        return None
 
-    # Check if 'timestamp' column exists and handle appropriately
-    if 'timestamp' in data.columns:
-        # If the timestamp column exists, convert to datetime and extract time-based features
-        data['timestamp'] = pd.to_datetime(data['timestamp'])
-        data['Day_Of_Week'] = data['timestamp'].dt.dayofweek
-        data['Hour_Of_Day'] = data['timestamp'].dt.hour
-        # Lag feature for hour-based element
-        data['Lag_Hour_1'] = data['Hour_Of_Day'].shift(1)
+def create_features(close_prices, volumes, timestamps):
+    """
+    Create feature set for the model, ensuring all required features are included.
+    """
+    features = {
+        'SMA_5': np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan,
+        'SMA_20': np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan,
+        'Price_Change': ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan,
+        'Volatility': np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan,
+        'Volume_Change': ((volumes[-1] - volumes[-2]) / volumes[-2]) * 100 if len(volumes) >= 2 else np.nan,
+        'Lag_Close_1': close_prices[-2] if len(close_prices) >= 2 else np.nan,
+        'Lag_Close_2': close_prices[-3] if len(close_prices) >= 3 else np.nan,
+        'Lag_Volume_1': volumes[-2] if len(volumes) >= 2 else np.nan,
+        'Lag_Hour_1': isoparse(timestamps[-2]).hour if len(timestamps) >= 2 else np.nan,  # New feature
+    }
+    if timestamps:
+        last_timestamp = isoparse(timestamps[-1])
+        features['Day_Of_Week'] = last_timestamp.weekday()
+        features['Hour_Of_Day'] = last_timestamp.hour
     else:
-        print("Warning: 'timestamp' column not found. Skipping time-based features.")
-        # Set default values if no timestamp column is available
-        data['Day_Of_Week'] = 0
-        data['Hour_Of_Day'] = 0
-        data['Lag_Hour_1'] = 0
+        features['Day_Of_Week'] = features['Hour_Of_Day'] = np.nan
 
-    # Drop rows with NaN values created by rolling and lag features
-    data.dropna(inplace=True)
+    return pd.DataFrame([features]).fillna(0)
 
-    # Define the target: 1 for Buy, -1 for Sell
-    data['Target'] = np.where(data['close'].shift(-1) > data['close'], 1, -1)
+def calculate_atr(close_prices, high_prices, low_prices, period=14):
+    """
+    Calculate the Average True Range (ATR) for the given data.
+    """
+    df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
+    df['prev_close'] = df['close'].shift(1)
+    df['tr'] = df[['high', 'low', 'prev_close']].apply(
+        lambda x: max(x['high'] - x['low'], abs(x['high'] - x['prev_close']), abs(x['low'] - x['prev_close'])),
+        axis=1
+    )
+    df['atr'] = df['tr'].rolling(window=period).mean()
+    return df['atr'].iloc[-1]
 
-    # Features and labels
-    X = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 
-              'Volume_Change', 'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1',
-              'Day_Of_Week', 'Hour_Of_Day', 'Lag_Hour_1']]
-    y = data['Target']
-    
-    return X, y
+def get_instrument_precision(instrument):
+    """
+    Return the precision for a specific instrument.
+    """
+    precision_map = {
+        "EUR_USD": 5, "USD_JPY": 3, "GBP_USD": 5, "AUD_USD": 5
+    }
+    return precision_map.get(instrument, 5)
 
-# Efficiently process data for multiple instruments using parallelism
-from concurrent.futures import ProcessPoolExecutor
+def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
+    """
+    Execute an IOC order with the specified parameters.
+    """
+    try:
+        precision = get_instrument_precision(instrument)
+        rounded_stop_loss = round(stop_loss, precision)
+        rounded_take_profit = round(take_profit, precision)
 
-def process_instrument_data(instrument):
-    file_path = os.path.join(DATA_DIR, f"{instrument}_data.csv")
-    if os.path.exists(file_path):
-        print(f"Processing data for {instrument}...")
-        return preprocess_data(file_path)
-    else:
-        print(f"Data file for {instrument} not found. Skipping...")
-        return None, None
+        order_payload = {
+            "order": {
+                "units": trade_amount if side == "buy" else -trade_amount,
+                "instrument": instrument,
+                "timeInForce": "IOC",
+                "type": "MARKET",
+                "stopLossOnFill": {"price": str(rounded_stop_loss)},
+                "takeProfitOnFill": {"price": str(rounded_take_profit)},
+                "positionFill": "DEFAULT",
+            }
+        }
 
-# Using ProcessPoolExecutor for parallel processing of data
-with ProcessPoolExecutor() as executor:
-    results = list(executor.map(process_instrument_data, INSTRUMENTS))
+        r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
+        response = CLIENT.request(r)
+        return f"Order placed: {response}"
+    except oandapyV20.exceptions.V20Error as e:
+        return f"Error executing order: {e}"
 
-# Collect the processed data
-X_combined = []
-y_combined = []
+def execute_trade(instrument):
+    """
+    Execute a trade based on model predictions and ATR.
+    """
+    try:
+        balance = get_account_balance()
+        if not balance:
+            return "Error: Unable to retrieve account balance."
 
-for X, y in results:
-    if X is not None and y is not None:
-        X_combined.append(X)
-        y_combined.append(y)
+        trade_amount = balance * 0.01
+        market_data = get_latest_data(instrument)
+        if not market_data:
+            return "Error: Unable to fetch market data."
 
-# Combine all data into single datasets
-X_combined = pd.concat(X_combined, axis=0, ignore_index=True)  # Concatenate along rows (axis=0)
-y_combined = pd.concat(y_combined, axis=0, ignore_index=True)  # Concatenate along rows (axis=0)
+        features = create_features(
+            market_data['close_prices'],
+            market_data['volumes'],
+            market_data['timestamps']
+        )
+        prediction = MODEL.predict(features)[0]
+        atr = calculate_atr(
+            market_data['close_prices'],
+            market_data['high_prices'],
+            market_data['low_prices']
+        )
+        stop_loss = atr * 1.5  # Smaller ATR multiplier
+        take_profit = atr * 2.5  # Smaller ATR multiplier
+        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
 
-# Check data shapes
-print(f"X_combined shape: {X_combined.shape}")
-print(f"y_combined shape: {y_combined.shape}")
+        side = "buy" if prediction == 1 else "sell"
+        return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+    except Exception as e:
+        return f"Error during trade execution: {e
 
-# Train-test split
-X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.2, random_state=42)
+Thanks for clarifying your feature set. Based on this, I'll ensure the script consistently generates all these features for both training and live prediction.
 
-# Gradient Boosting model
-model = GradientBoostingClassifier(random_state=42)
+Here's the **updated script** to align the live feature generation with your feature set:
 
-# Hyperparameter grid for Gradient Boosting
-param_grid = {
-    'n_estimators': [50, 100, 200],
-    'learning_rate': [0.01, 0.1, 0.2],
-    'max_depth': [3, 5, 7],
-    'subsample': [0.8, 0.9, 1.0],
-}
+---
 
-# Grid search for best hyperparameters
-grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=3, n_jobs=-1, verbose=2)
+### Full Script with Correct Features
 
-# Train with best hyperparameters
-grid_search.fit(X_train, y_train)
+```python
+import os
+import pandas as pd
+import oandapyV20
+import oandapyV20.endpoints.orders as orders
+import oandapyV20.endpoints.accounts as accounts
+import oandapyV20.endpoints.instruments as instruments
+import joblib
+import numpy as np
+from datetime import datetime
+from dateutil.parser import isoparse
 
-# Get the best model
-best_model = grid_search.best_estimator_
+# OANDA API credentials
+ACCESS_TOKEN = os.getenv("API_KEY")
+ACCOUNT_ID = os.getenv("ACCOUNT_ID")
+CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 
-# Cross-validation to evaluate model performance
-cross_val_scores = cross_val_score(best_model, X_combined, y_combined, cv=3, n_jobs=-1)
-print(f"Cross-validation scores: {cross_val_scores}")
-print(f"Mean score: {cross_val_scores.mean()}")
+# Load the trained machine learning model
+MODEL = joblib.load('models/trading_model.pkl')
 
-# Evaluate the model
-y_pred = best_model.predict(X_test)
-print("Model Performance:")
-print(classification_report(y_test, y_pred))
-print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
-print(f"Precision: {precision_score(y_test, y_pred, average='weighted')}")
-print(f"Recall: {recall_score(y_test, y_pred, average='weighted')}")
-print(f"F1-Score: {f1_score(y_test, y_pred, average='weighted')}")
+# Instruments to trade
+INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD']
 
-# Save the trained model
-MODEL_DIR = "models"
-if not os.path.exists(MODEL_DIR):
-    os.makedirs(MODEL_DIR)
+def get_account_balance():
+    """Fetch the current account balance."""
+    try:
+        account_request = accounts.AccountDetails(ACCOUNT_ID)
+        response = CLIENT.request(account_request)
+        return float(response['account']['balance'])
+    except oandapyV20.exceptions.V20Error as e:
+        print(f"Error fetching account balance: {e}")
+        return None
 
-model_file_path = os.path.join(MODEL_DIR, "trading_model.pkl")
-joblib.dump(best_model, model_file_path)
-print(f"Model saved to {model_file_path}")
+def get_latest_data(instrument):
+    """Fetch the latest market data for the specified instrument."""
+    try:
+        params = {"granularity": "H1", "count": 100, "price": "M"}
+        request = instruments.InstrumentsCandles(instrument, params=params)
+        response = CLIENT.request(request)
+        candles = response['candles']
+        return {
+            'close_prices': [float(c['mid']['c']) for c in candles],
+            'high_prices': [float(c['mid']['h']) for c in candles],
+            'low_prices': [float(c['mid']['l']) for c in candles],
+            'volumes': [c['volume'] for c in candles],
+            'timestamps': [c['time'] for c in candles]
+        }
+    except Exception as e:
+        print(f"Error fetching data for {instrument}: {e}")
+        return None
+
+def create_features(close_prices, high_prices, low_prices, volumes, timestamps):
+    """Generate all required features for the model."""
+    features = {
+        'SMA_5': np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan,
+        'SMA_20': np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan,
+        'Price_Change': ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan,
+        'Volatility': np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan,
+        'Volume_Change': ((volumes[-1] - volumes[-2]) / volumes[-2]) * 100 if len(volumes) >= 2 else np.nan,
+        'Lag_Close_1': close_prices[-2] if len(close_prices) >= 2 else np.nan,
+        'Lag_Close_2': close_prices[-3] if len(close_prices) >= 3 else np.nan,
+        'Lag_Volume_1': volumes[-2] if len(volumes) >= 2 else np.nan,
+        'Day_Of_Week': isoparse(timestamps[-1]).weekday() if timestamps else np.nan,
+        'Hour_Of_Day': isoparse(timestamps[-1]).hour if timestamps else np.nan,
+        'Lag_Hour_1': isoparse(timestamps[-2]).hour if len(timestamps) >= 2 else np.nan
+    }
+    return pd.DataFrame([features]).fillna(0)
+
+def calculate_atr(close_prices, high_prices, low_prices, period=14):
+    """Calculate Average True Range (ATR)."""
+    df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
+    df['prev_close'] = df['close'].shift(1)
+    df['tr'] = df[['high', 'low', 'prev_close']].apply(
+        lambda x: max(x['high'] - x['low'], abs(x['high'] - x['prev_close']), abs(x['low'] - x['prev_close'])),
+        axis=1
+    )
+    df['atr'] = df['tr'].rolling(window=period).mean()
+    return df['atr'].iloc[-1]
+
+def execute_order(instrument, side, trade_amount, stop_loss, take_profit):
+    """Execute a trade order."""
+    try:
+        order_payload = {
+            "order": {
+                "units": trade_amount if side == "buy" else -trade_amount,
+                "instrument": instrument,
+                "timeInForce": "IOC",
+                "type": "MARKET",
+                "stopLossOnFill": {"price": str(round(stop_loss, 5))},
+                "takeProfitOnFill": {"price": str(round(take_profit, 5))},
+                "positionFill": "DEFAULT"
+            }
+        }
+        r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
+        response = CLIENT.request(r)
+        return f"Order placed: {response}"
+    except oandapyV20.exceptions.V20Error as e:
+        return f"Error executing order: {e}"
+
+def execute_trade(instrument):
+    """Perform a trade based on model prediction and ATR."""
+    try:
+        balance = get_account_balance()
+        if not balance:
+            return "Error: Unable to fetch account balance."
+
+        trade_amount = int(balance * 0.01)
+        market_data = get_latest_data(instrument)
+        if not market_data:
+            return f"Error: Unable to fetch market data for {instrument}."
+
+        features = create_features(
+            market_data['close_prices'],
+            market_data['high_prices'],
+            market_data['low_prices'],
+            market_data['volumes'],
+            market_data['timestamps']
+        )
+
+        prediction = MODEL.predict(features)[0]
+        atr = calculate_atr(
+            market_data['close_prices'],
+            market_data['high_prices'],
+            market_data['low_prices']
+        )
+
+        stop_loss = atr * 1.5
+        take_profit = atr * 2.5
+        side = "buy" if prediction == 1 else "sell"
+        return execute_order(instrument, side, trade_amount, stop_loss, take_profit)
+    except Exception as e:
+        return f"Error during trade execution: {e}"
+
+if __name__ == "__main__":
+    for instrument in INSTRUMENTS:
+        result = execute_trade(instrument)
+        print(result)
