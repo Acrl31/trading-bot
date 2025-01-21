@@ -109,16 +109,16 @@ def get_instrument_precision(instrument):
         "EUR_USD": 5,
         "USD_JPY": 3,
         "GBP_USD": 5,
-        "AUD_USD": 5,
+        "AUD_USD": 4,  # Change precision for AUD_USD if needed
     }
-    return precision_map.get(instrument, 5)
+    return precision_map.get(instrument, 5)  # Default to 5 if precision is unknown
 
 def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
     try:
         precision = get_instrument_precision(instrument)
         
         # Round trade_amount to the allowed precision for the instrument
-        rounded_trade_amount = round(trade_amount, 2)  # Adjust '2' to the precision allowed for the instrument
+        rounded_trade_amount = round(trade_amount, precision)  # Use the precision for the instrument
         
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
