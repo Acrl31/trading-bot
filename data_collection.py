@@ -16,17 +16,17 @@ INSTRUMENTS = [
     'USD_JPY',  # US Dollar / Japanese Yen
     'GBP_USD',  # British Pound / US Dollar
     'AUD_USD',  # Australian Dollar / US Dollar
-    'USD_CHF',  # US Dollar / Swiss Franc
-    'EUR_JPY',  # Euro / Japanese Yen
-    'GBP_JPY',  # British Pound / Japanese Yen
-    'EUR_GBP',  # Euro / British Pound
     'USD_CAD',  # US Dollar / Canadian Dollar
-    'NZD_USD'   # New Zealand Dollar / US Dollar
+    'EUR_GBP',  # Euro / British Pound
+    'EUR_JPY',  # Euro / Japanese Yen
+    'XAU_USD',  # Gold / US Dollar
+    'XAG_USD',  # Silver / US Dollar
+    'USD_TRY'   # US Dollar / Turkish Lira
 ]
 
 # Timeframe and granularity for historical data
-GRANULARITY = "H1"  # 1-hour candles
-START_DATE = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+GRANULARITY = "M1"  # 1-hour candles
+START_DATE = (datetime.utcnow() - timedelta(months=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
 END_DATE = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # Directory to save collected data
