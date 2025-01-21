@@ -92,7 +92,10 @@ def preprocess_data(df):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    return X_scaled, y, feature_columns
+    # Convert to DataFrame to retain feature names
+    X_scaled_df = pd.DataFrame(X_scaled, columns=feature_columns)
+
+    return X_scaled_df, y, feature_columns
 
 def train_model(X, y):
     """
@@ -113,8 +116,8 @@ def train_model(X, y):
     )
 
     for train_index, test_index in tscv.split(X):
-        X_train, X_test = X[train_index], X[test_index]
-        y_train, y_test = y[train_index], y[test_index]
+        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
         # Check for at least two classes in the training set
         if len(np.unique(y_train)) < 2:
@@ -162,4 +165,3 @@ if __name__ == "__main__":
     print("Using features:", features)  # Print out all the features being used
     print("Training model...")
     trained_model = train_model(X, y)
-    print("Model training complete.")
