@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
@@ -33,18 +33,30 @@ def add_features(df):
     """
     Add technical and statistical features to the data.
     """
+    features = {}  # Dictionary to store feature names and corresponding values
     df['returns'] = df['close'].pct_change()
+    features['returns'] = df['returns']
     df['volatility'] = df['returns'].rolling(window=10).std()
+    features['volatility'] = df['volatility']
     df['ma_short'] = df['close'].rolling(window=5).mean()
+    features['ma_short'] = df['ma_short']
     df['ma_long'] = df['close'].rolling(window=20).mean()
+    features['ma_long'] = df['ma_long']
     df['ma_diff'] = df['ma_short'] - df['ma_long']
+    features['ma_diff'] = df['ma_diff']
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
+    features['ema_short'] = df['ema_short']
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
+    features['ema_long'] = df['ema_long']
     df['ema_diff'] = df['ema_short'] - df['ema_long']
+    features['ema_diff'] = df['ema_diff']
     rolling_std = df['close'].rolling(window=20).std()
     df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
+    features['bollinger_upper'] = df['bollinger_upper']
     df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
+    features['bollinger_lower'] = df['bollinger_lower']
     df['bollinger_bandwidth'] = df['bollinger_upper'] - df['bollinger_lower']
+    features['bollinger_bandwidth'] = df['bollinger_bandwidth']
     delta = df['close'].diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
@@ -52,14 +64,20 @@ def add_features(df):
     avg_loss = pd.Series(loss).rolling(window=14).mean()
     rs = avg_gain / (avg_loss + 1e-9)
     df['rsi'] = 100 - (100 / (1 + rs))
+    features['rsi'] = df['rsi']
     ema_12 = df['close'].ewm(span=12, adjust=False).mean()
     ema_26 = df['close'].ewm(span=26, adjust=False).mean()
     df['macd'] = ema_12 - ema_26
+    features['macd'] = df['macd']
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+    features['macd_signal'] = df['macd_signal']
     df['macd_diff'] = df['macd'] - df['macd_signal']
+    features['macd_diff'] = df['macd_diff']
     df['high_low_diff'] = df['high'] - df['low']
+    features['high_low_diff'] = df['high_low_diff']
     df['open_close_diff'] = df['open'] - df['close']
-    return df.dropna()
+    features['open_close_diff'] = df['open_close_diff']
+    return df.dropna(), list(features.keys())
 
 def preprocess_data(df):
     """
@@ -88,14 +106,14 @@ def preprocess_data(df):
 
     return X_scaled, y
 
-def train_model(X, y):
+def train_model(X, y, feature_names):
     """
     Train a Gradient Boosting model and evaluate its performance.
     """
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-    # Train the model with the best hyperparameters
+    # Train the model with a set of hyperparameters
     model = GradientBoostingClassifier(
         n_estimators=200,
         max_depth=15,
@@ -114,7 +132,6 @@ def train_model(X, y):
 
     # Feature importance analysis
     feature_importance = model.feature_importances_
-    feature_names = [f"Feature {i}" for i in range(X.shape[1])]
 
     # Combine feature names with their importance values
     feature_importance_data = zip(feature_names, feature_importance)
@@ -136,14 +153,9 @@ if __name__ == "__main__":
     print("Loading data...")
     data = load_data()
     print("Adding features...")
-    data = add_features(data)
+    data, feature_names = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
-    
-    # Remove low importance features (example)
-    low_importance_features = [7, 2, 1, 10]  # Add indices for features with low importance
-    X = np.delete(X, low_importance_features, axis=1)  # Remove these features from X
-    
     print("Training model...")
-    trained_model = train_model(X, y)
+    trained_model = train_model(X, y, feature_names)
     print("Model training complete.")
