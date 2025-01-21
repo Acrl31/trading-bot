@@ -113,14 +113,16 @@ def train_model(X, y):
 
     # Feature importance analysis
     feature_importance = model.feature_importances_
+    feature_names = [f"Feature {i}" for i in range(X.shape[1])]
 
-    # Correct feature names extraction
-    feature_names = [f"Feature {i}" for i in range(X.shape[1])]  # Match the number of columns in X
+    # Save the feature importance plot
     plt.figure(figsize=(10, 6))
     plt.barh(feature_names, feature_importance)
     plt.xlabel("Feature Importance")
     plt.title("Random Forest Feature Importance")
-    plt.show()
+    plot_path = "feature_importance.png"  # Save the plot as a PNG file
+    plt.savefig(plot_path)
+    print(f"Feature importance plot saved to {plot_path}")
 
     return model
 
