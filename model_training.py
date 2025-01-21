@@ -36,6 +36,7 @@ def add_features(df):
     features = {}  # Dictionary to store feature names and corresponding values
     df['returns'] = df['close'].pct_change()
     features['returns'] = df['returns']
+    df['ma_short'] = df['close'].rolling(window=5).mean()
     df['ma_long'] = df['close'].rolling(window=20).mean()
     features['ma_long'] = df['ma_long']
     df['ma_diff'] = df['ma_short'] - df['ma_long']
