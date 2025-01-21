@@ -205,8 +205,8 @@ def execute_trade(instrument):
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         # Set tighter multipliers for SL and        TP for scalping
-        stop_loss = current_price - atr * 0.25 if prediction == 1 else current_price + atr * 0.25
-        take_profit = current_price + atr * 0.5 if prediction == 1 else current_price - atr * 0.5
+        stop_loss = current_price - atr * 0.125 if prediction == 1 else current_price + atr * 0.125
+        take_profit = current_price + atr * 0.25 if prediction == 1 else current_price - atr * 0.25
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
