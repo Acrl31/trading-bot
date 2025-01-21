@@ -7,6 +7,7 @@ import oandapyV20.endpoints.instruments as instruments
 import joblib
 import numpy as np
 from datetime import datetime
+from dateutil.parser import isoparse
 
 # OANDA API credentials (replace with your own)
 ACCESS_TOKEN = os.getenv("API_KEY")
@@ -41,7 +42,7 @@ def get_latest_data(instrument):
         candles = req.response['candles']
         close_prices = [float(c['mid']['c']) for c in candles if c['complete']]
         volumes = [float(c['volume']) for c in candles if c['complete']]
-        timestamps = [datetime.fromisoformat(c['time'].replace('Z', '+00:00')) for c in candles if c['complete']]
+        timestamps = [isoparse(c['time']) for c in candles if c['complete']]  # Use isoparse for flexible parsing
         return close_prices, volumes, timestamps
     except Exception as e:
         print(f"Error fetching data for {instrument}: {e}")
