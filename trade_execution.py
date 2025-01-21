@@ -32,7 +32,7 @@ def get_account_balance():
         response = CLIENT.request(account_request)
         balance = float(response['account']['balance'])
         return balance
-    except oandapyv20.exceptions.V20Error as e:
+    except oandapyV20.exceptions.V20Error as e:
         print(f"Error fetching account balance: {e}")
         return None
 
@@ -138,13 +138,19 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         print(f"Current Price: {current_price}, Trade Amount: {trade_amount}")
 
         # Define the maximum number of pips away from current price that the limit order can be
-        max_pip_distance = 5  # Limit the order to be 5 pips away at most
+        max_pip_distance = 3  # Limit the order to be 3 pips away at most
 
         # Calculate the limit price based on max pip distance
         if side == "buy":
             limit_price = current_price + (max_pip_distance * pip_size)
         else:
             limit_price = current_price - (max_pip_distance * pip_size)
+
+        # Check if the calculated limit price is too far away from the current market price
+        price_diff = abs(current_price - limit_price) * (10 ** precision)  # Calculate the pip distance
+        if price_diff > max_pip_distance:
+            print(f"Order is too far away (max {max_pip_distance} pips). Skipping order.")
+            return f"Order is too far away (max {max_pip_distance} pips). Skipping order."
 
         # Round price, stop loss, and take profit to the correct precision
         rounded_price = round(limit_price, precision)
