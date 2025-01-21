@@ -17,10 +17,13 @@ CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 # Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
 MODEL = joblib.load('models/trading_model.pkl')
 
-# List of instruments to trade (same as in your model)
-INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD', 'XAU_USD', 'XAG_USD']
+# List of instruments to trade (gold and silver removed)
+INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD']
 
 def get_account_balance():
+    """
+    Fetch the current balance of the account.
+    """
     try:
         account_request = accounts.AccountDetails(ACCOUNT_ID)
         response = CLIENT.request(account_request)
@@ -31,6 +34,9 @@ def get_account_balance():
         return None
 
 def get_latest_data(instrument):
+    """
+    Fetch the latest market data for the given instrument.
+    """
     try:
         params = {"granularity": "H1", "count": 100, "price": "M"}
         request = instruments.InstrumentsCandles(instrument, params=params)
@@ -53,76 +59,55 @@ def get_latest_data(instrument):
         return None
 
 def create_features(close_prices, volumes, timestamps):
-    features = {}
-    features['SMA_5'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
-    features['SMA_20'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
-    features['Price_Change'] = ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan
-    features['Volatility'] = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
-    features['Volume_Change'] = ((volumes[-1] - volumes[-2]) / volumes[-2]) * 100 if len(volumes) >= 2 else np.nan
-    features['Lag_Close_1'] = close_prices[-2] if len(close_prices) >= 2 else np.nan
-    features['Lag_Close_2'] = close_prices[-3] if len(close_prices) >= 3 else np.nan
-    features['Lag_Volume_1'] = volumes[-2] if len(volumes) >= 2 else np.nan
-
+    features = {
+        'SMA_5': np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan,
+        'SMA_20': np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan,
+        'Price_Change': ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan,
+        'Volatility': np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan,
+        'Volume_Change': ((volumes[-1] - volumes[-2]) / volumes[-2]) * 100 if len(volumes) >= 2 else np.nan,
+        'Lag_Close_1': close_prices[-2] if len(close_prices) >= 2 else np.nan,
+        'Lag_Close_2': close_prices[-3] if len(close_prices) >= 3 else np.nan,
+        'Lag_Volume_1': volumes[-2] if len(volumes) >= 2 else np.nan,
+    }
     if timestamps:
         last_timestamp = isoparse(timestamps[-1])
         features['Day_Of_Week'] = last_timestamp.weekday()
         features['Hour_Of_Day'] = last_timestamp.hour
-        features['Lag_Hour_1'] = isoparse(timestamps[-2]).hour if len(timestamps) >= 2 else np.nan
     else:
-        features['Day_Of_Week'] = features['Hour_Of_Day'] = features['Lag_Hour_1'] = np.nan
+        features['Day_Of_Week'] = features['Hour_Of_Day'] = np.nan
 
-    features_df = pd.DataFrame([features]).fillna(0)
-    feature_order = [
-        'SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 'Volume_Change',
-        'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1', 'Day_Of_Week',
-        'Hour_Of_Day', 'Lag_Hour_1'
-    ]
-    return features_df[feature_order]
+    return pd.DataFrame([features]).fillna(0)
 
 def calculate_atr(close_prices, high_prices, low_prices, period=14):
+    """
+    Calculate the Average True Range (ATR) for the given data.
+    """
     df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
     df['prev_close'] = df['close'].shift(1)
     df['tr'] = df[['high', 'low', 'prev_close']].apply(
         lambda x: max(x['high'] - x['low'], abs(x['high'] - x['prev_close']), abs(x['low'] - x['prev_close'])),
         axis=1
     )
-    df['atr'] = df['tr'].ewm(span=period, min_periods=1).mean()
-    atr_value = df['atr'].iloc[-1]
-    print(f"Calculated ATR: {atr_value}")
-    return atr_value
-
-def get_confidence(features, prediction):
-    try:
-        if prediction == 1:
-            confidence = MODEL.predict_proba(features)[0][1]
-        elif prediction == -1:
-            confidence = MODEL.predict_proba(features)[0][0]
-        else:
-            confidence = 0
-        return confidence * 100
-    except Exception as e:
-        print(f"Error calculating confidence: {e}")
-        return 0
+    df['atr'] = df['tr'].rolling(window=period).mean()
+    return df['atr'].iloc[-1]
 
 def get_instrument_precision(instrument):
+    """
+    Return the precision for a specific instrument.
+    """
     precision_map = {
-        "XAU_USD": 2,
-        "XAG_USD": 3,
-        "EUR_USD": 5,
-        "USD_JPY": 3,
-        "GBP_USD": 5,
-        "AUD_USD": 5,
+        "EUR_USD": 5, "USD_JPY": 3, "GBP_USD": 5, "AUD_USD": 5
     }
     return precision_map.get(instrument, 5)
 
-def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
+def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
+    """
+    Execute an IOC order with the specified parameters.
+    """
     try:
         precision = get_instrument_precision(instrument)
-        slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
-        rounded_price = round(slippage_adjustment, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
-        print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}")
 
         order_payload = {
             "order": {
@@ -138,17 +123,19 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
-        print(f"Order Response: {response}")
-        return f"Market {side} order placed for {instrument}."
+        return f"Order placed: {response}"
     except oandapyV20.exceptions.V20Error as e:
-        print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
 
 def execute_trade(instrument):
+    """
+    Execute a trade based on model predictions and ATR.
+    """
     try:
         balance = get_account_balance()
         if not balance:
             return "Error: Unable to retrieve account balance."
+
         trade_amount = balance * 0.01
         market_data = get_latest_data(instrument)
         if not market_data:
@@ -165,21 +152,14 @@ def execute_trade(instrument):
             market_data['high_prices'],
             market_data['low_prices']
         )
-
+        stop_loss = atr * 1.5  # Smaller ATR multiplier
+        take_profit = atr * 2.5  # Smaller ATR multiplier
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        stop_loss = current_price - atr * 2 if prediction == 1 else current_price + atr * 2
-        take_profit = current_price + atr * 4 if prediction == 1 else current_price - atr * 4
-
-        print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
-        confidence = get_confidence(features, prediction)
-        if confidence < 30:
-            return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
         return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
     except Exception as e:
-        print(f"Error during trade execution: {e}")
-        return "Error during trade execution."
+        return f"Error during trade execution: {e}"
 
 if __name__ == "__main__":
     for instrument in INSTRUMENTS:
