@@ -157,7 +157,6 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
-        print(f"Order Response: {response}")
         return f"Market {side} order placed for {instrument}."
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
