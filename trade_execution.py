@@ -204,7 +204,7 @@ def execute_trade(instrument):
             market_data['low_prices']
         )
 
-        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
+        current_price = market_data['prices']['buy'] if prediction == 0 else market_data['prices']['sell']
         # Set tighter multipliers for SL and        TP for scalping
         stop_loss = current_price - atr * 0.2 if prediction == 0 else current_price + atr * 0.2
         take_profit = current_price + atr * 0.4 if prediction == 0 else current_price - atr * 0.4
