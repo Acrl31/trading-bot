@@ -210,7 +210,7 @@ def execute_trade(instrument):
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
-        print(f"Confidence: {confidence})
+        print(f"Confidence: {confidence}")
         if confidence < 70:
             return "Confidence too low to execute trade."
 
