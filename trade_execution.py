@@ -213,10 +213,8 @@ def execute_trade(instrument):
         confidence = get_confidence(features, prediction)
         if confidence < 70:
             return "Confidence too low to execute trade.\n"
-            
-        print(prediction) 
 
-        side = "buy" if prediction == 1 else "sell"
+        side = "buy" if prediction == 0 else "sell"
         return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
     except Exception as e:
         print(f"Error during trade execution: {e}")
