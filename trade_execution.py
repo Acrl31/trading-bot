@@ -99,7 +99,6 @@ def calculate_atr(close_prices, high_prices, low_prices, period=14):
     )
     df['atr'] = df['tr'].ewm(span=period, min_periods=1).mean()
     atr_value = df['atr'].iloc[-1]
-    print(f"Calculated ATR: {atr_value}")
     return atr_value
 
 def get_confidence(features, prediction):
