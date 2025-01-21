@@ -215,7 +215,7 @@ def execute_trade(instrument):
         print(f"Error executing trade: {e}")
         return f"Error executing trade: {e}"
 
-# Example usage for a single trade:
-instrument = 'EUR_USD'
-result = execute_trade(instrument)
-print(result)
+# Main execution loop for all instruments
+for instrument in INSTRUMENTS:
+    result = execute_trade(instrument)
+    print(f"Trade result for {instrument}: {result}")
