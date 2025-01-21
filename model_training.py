@@ -2,10 +2,8 @@ import os
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
-from sklearn.feature_selection import SelectFromModel
-from sklearn.ensemble import RandomForestClassifier
 import joblib
 from concurrent.futures import ProcessPoolExecutor
 
@@ -27,7 +25,7 @@ def preprocess_data(file_path):
     data['SMA_20'] = data['close'].rolling(window=20).mean()
     data['EMA_5'] = data['close'].ewm(span=5, adjust=False).mean()
     data['EMA_20'] = data['close'].ewm(span=20, adjust=False).mean()
-    data['RSI'] = 100 - (100 / (1 + (data['close'].diff().clip(lower=0).rolling(window=14).mean() / 
+    data['RSI'] = 100 - (100 / (1 + (data['close'].diff().clip(lower=0).rolling(window=14).mean() /
                                     -data['close'].diff().clip(upper=0).rolling(window=14).mean())))
     data['Price_Change'] = data['close'].pct_change()  # Percent change in price
     data['Volatility'] = data['high'] - data['low']  # Intraday volatility
@@ -94,6 +92,13 @@ grid_search.fit(X_train, y_train)
 
 # Get the best model
 best_model = grid_search.best_estimator_
+
+# Feature importance
+feature_importances = best_model.feature_importances_
+sorted_indices = np.argsort(feature_importances)[::-1]
+print("Feature Importances:")
+for idx in sorted_indices:
+    print(f"{X_train.columns[idx]}: {feature_importances[idx]}")
 
 # Evaluate the model
 y_pred = best_model.predict(X_test)
