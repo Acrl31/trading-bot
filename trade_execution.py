@@ -20,12 +20,19 @@ MODEL = joblib.load('models/trading_model.pkl')
 # List of instruments to trade (same as in your model)
 INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD', 'XAU_USD', 'XAG_USD']
 
-def get_balance():
-    request = accounts.AccountDetails(ACCOUNT_ID)
+def get_account_balance():
+    """
+    Fetch the current balance of the account.
+    
+    Returns:
+        float: The account balance.
+    """
     try:
-        response = CLIENT.request(request)
-        return float(response['account']['balance'])
-    except Exception as e:
+        account_request = accounts.AccountDetails(ACCOUNT_ID)
+        response = CLIENT.request(account_request)
+        balance = float(response['account']['balance'])
+        return balance
+    except oandapyv20.exceptions.V20Error as e:
         print(f"Error fetching account balance: {e}")
         return None
 
@@ -157,11 +164,13 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
 def execute_trade(instrument):
     try:
-        balance = get_balance()
+        balance = get_account_balance()  # Changed to get_account_balance()
         if not balance:
             return "Error: Unable to retrieve account balance."
+        
+        # Ensure that the trade size is at most 1% of the balance
         trade_amount = balance * 0.01
-
+        
         market_data = get_latest_data(instrument)
         if not market_data:
             return "Error: Unable to fetch market data."
@@ -181,6 +190,7 @@ def execute_trade(instrument):
         take_profit = round(atr * 4, 5)
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         confidence = get_confidence(features, prediction)
+        
         if confidence < 30:
             return "Confidence too low to execute trade."
 
