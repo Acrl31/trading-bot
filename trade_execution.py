@@ -181,52 +181,45 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         return f"Error executing order: {e}"
 
 def execute_trade(instrument):
-    try:
-        balance = get_account_balance()
-        if not balance:
-            return "Error: Unable to retrieve account balance."
-        trade_amount = balance * 0.01
-        market_data = get_latest_data(instrument)
-        if not market_data:
-            return "Error: Unable to fetch market data."
-
-        features = create_features(
-            market_data['open_prices'],
-            market_data['high_prices'],
-            market_data['low_prices'],
-            market_data['close_prices'],
-            market_data['volumes'],
-            market_data['timestamps']
-        )
-        prediction = MODEL.predict(features)[0]
-        atr = calculate_atr_scalping(
-            market_data['close_prices'],
-            market_data['high_prices'],
-            market_data['low_prices']
-        )
-
-        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
+    data = get_latest_data(instrument)
+    
+    if data:
+        close_prices = data['close_prices']
+        high_prices = data['high_prices']
+        low_prices = data['low_prices']
+        open_prices = data['open_prices']
+        volumes = data['volumes']
+        current_price = data['prices']['buy']  # Using buy price for now
         
-        # Set wider multipliers for SL and TP based on ATR for more room
-        sl_multiplier = 1   # Increased from 0.5 to 1.5
-        tp_multiplier = 2  # Increased from 1 to 2
-        
-        stop_loss = current_price - atr * sl_multiplier if prediction == 1 else current_price + atr * sl_multiplier
-        take_profit = current_price + atr * tp_multiplier if prediction == 1 else current_price - atr * tp_multiplier
+        atr = calculate_atr_scalping(close_prices, high_prices, low_prices)
+        print(f"ATR value: {atr}")
 
-        confidence = get_confidence(features, prediction)
-        print(f"Confidence: {confidence:.2f}%")
-        
-        # Only place an order if confidence is over 70%
-        if confidence < 70:
-            return f"Confidence too low ({confidence:.2f}%), not placing trade."
+        features_df = create_features(open_prices, high_prices, low_prices, close_prices, volumes, data['timestamps'])
+        prediction = MODEL.predict(features_df)[0]
+        confidence = get_confidence(features_df, prediction)
 
-        return execute_ioc_order(instrument, "buy" if prediction == 1 else "sell", trade_amount, stop_loss, take_profit, current_price)
-    except Exception as e:
-        print(f"Error executing trade: {e}")
-        return f"Error executing trade: {e}"
+        if confidence < 60:
+            print(f"Low confidence ({confidence}%). Skipping trade for {instrument}.")
+            return
 
-# Run the trading function for all instruments
+        # Calculate stop loss and take profit
+        sl_multiplier = 2  # Adjust as necessary
+        tp_multiplier = 3  # Adjust as necessary
+        stop_loss = current_price - atr * sl_multiplier
+        take_profit = current_price + atr * tp_multiplier
+
+        # Ensure stop loss and take profit are far enough from current price
+        min_distance = 0.0010  # 10 pips for EUR/JPY
+        if abs(stop_loss - current_price) < min_distance:
+            stop_loss = current_price + min_distance
+        if abs(take_profit - current_price) < min_distance:
+            take_profit = current_price + min_distance
+
+        # Execute the order
+        execute_ioc_order(instrument, "buy", 1000, stop_loss, take_profit, current_price)  # Adjust trade amount as needed
+    else:
+        print(f"No data for {instrument}, skipping.")
+
+# Execute trades for each instrument in the list
 for instrument in INSTRUMENTS:
-    print(f"Trading {instrument}...")
-    print(execute_trade(instrument))
+    execute_trade(instrument)
