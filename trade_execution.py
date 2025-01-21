@@ -222,8 +222,8 @@ def execute_trade(instrument):
             return
 
         # Calculate stop loss and take profit
-        sl_multiplier = 2  # Adjust as necessary
-        tp_multiplier = 3  # Adjust as necessary
+        sl_multiplier = 0.5  # Adjust as necessary
+        tp_multiplier = 1  # Adjust as necessary
         stop_loss = current_price - atr * sl_multiplier
         take_profit = current_price + atr * tp_multiplier
 
