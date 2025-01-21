@@ -118,16 +118,12 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         precision = get_instrument_precision(instrument)
         
         # Round trade_amount to the allowed precision for the instrument
-        rounded_trade_amount = round(trade_amount, precision)  # Round to the instrument's precision
+        rounded_trade_amount = round(trade_amount, 2)  # Adjust '2' to the precision allowed for the instrument
         
-        # Adjust the slippage price by the side and round to precision
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
-        
-        # Round stop loss and take profit to instrument precision
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
-        
         print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
         order_payload = {
@@ -173,8 +169,8 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        stop_loss = current_price - atr * 0.5 if prediction == 1 else current_price + atr * 0.5
-        take_profit = current_price + atr * 1.5 if prediction == 1 else current_price - atr * 1.5
+        stop_loss = current_price - atr * 2 if prediction == 1 else current_price + atr * 2
+        take_profit = current_price + atr * 4 if prediction == 1 else current_price - atr * 4
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
