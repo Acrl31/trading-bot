@@ -3,9 +3,9 @@ import pandas as pd
 import oandapyV20
 import oandapyV20.endpoints.orders as orders
 import oandapyV20.endpoints.accounts as accounts
+from oandapyV20.endpoints.instruments import InstrumentsCandles
 import joblib
 import numpy as np
-from datetime import datetime
 
 # OANDA API credentials (replace with your own)
 ACCESS_TOKEN = os.getenv("API_KEY")
@@ -38,7 +38,7 @@ def get_latest_data(instrument):
     
     # Request data from OANDA
     try:
-        response = oandapyV20.endpoints.instruments.InstrumentsCandles(instrument=instrument, params=params)
+        response = InstrumentsCandles(instrument=instrument, params=params)
         CLIENT.request(response)
         candles = response.response['candles']
         
@@ -53,17 +53,14 @@ def get_latest_data(instrument):
         return None, None, None
 
 # Calculate the Average True Range (ATR) for an instrument (to use for stop loss and take profit)
-def calculate_atr(instrument, window=14):
-    close_prices, high_prices, low_prices = get_latest_data(instrument)
-    if close_prices is None or len(close_prices) < window:
+def calculate_atr(high_prices, low_prices, close_prices, window=14):
+    if high_prices is None or low_prices is None or close_prices is None or len(close_prices) < window:
         return None
     
     # Calculate True Range (TR) values
-    high_low = high_prices - low_prices
-    high_close = np.abs(high_prices - close_prices[:-1])
-    low_close = np.abs(low_prices - close_prices[:-1])
-    
-    tr = np.maximum(high_low, np.maximum(high_close, low_close))
+    tr = np.maximum(high_prices[1:] - low_prices[1:], 
+                    np.maximum(np.abs(high_prices[1:] - close_prices[:-1]),
+                               np.abs(low_prices[1:] - close_prices[:-1])))
     atr = np.mean(tr[-window:])
     return atr
 
@@ -77,8 +74,13 @@ def execute_trade(instrument):
     # Calculate trade amount (1% of available balance)
     trade_amount = balance * 0.01  # 1% of available balance
 
+    # Fetch market data for ATR calculation and model prediction
+    close_prices, high_prices, low_prices = get_latest_data(instrument)
+    if close_prices is None or high_prices is None or low_prices is None:
+        return
+
     # Calculate ATR for dynamic stop loss and take profit
-    atr = calculate_atr(instrument)
+    atr = calculate_atr(high_prices, low_prices, close_prices)
     if atr is None:
         return
 
@@ -87,10 +89,9 @@ def execute_trade(instrument):
     take_profit = atr * 4  # Example: take profit is 4x ATR
 
     # Fetch the latest data for prediction
-    close_prices, _, _ = get_latest_data(instrument)
-    if close_prices is None or len(close_prices) == 0:
-        return
     latest_data = close_prices[-1].reshape(1, -1)  # Only use the last data point
+    if latest_data is None:
+        return
     
     # Predict the action (buy, sell, or hold)
     prediction = MODEL.predict(latest_data)
