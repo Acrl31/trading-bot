@@ -154,10 +154,26 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         # Round trade_amount to the nearest whole number
         rounded_trade_amount = int(round(trade_amount))
         
+        # Adjust prices considering slippage
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
-        rounded_stop_loss = round(stop_loss, precision)
-        rounded_take_profit = round(take_profit, precision)
+        
+        # Ensure stop loss and take profit are at a reasonable distance
+        slippage_stop_loss = stop_loss if side == "buy" else current_price + 0.001
+        slippage_take_profit = take_profit if side == "buy" else current_price - 0.001
+        
+        # Round the prices
+        rounded_stop_loss = round(slippage_stop_loss, precision)
+        rounded_take_profit = round(slippage_take_profit, precision)
+        
+        # Ensure there's a minimum difference between stop loss and take profit
+        min_distance = 0.0010  # 10 pips for EUR/JPY
+        if abs(rounded_stop_loss - rounded_take_profit) < min_distance:
+            if side == "buy":
+                rounded_take_profit = rounded_stop_loss + min_distance
+            else:
+                rounded_take_profit = rounded_stop_loss - min_distance
+        
         print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
         order_payload = {
@@ -179,7 +195,7 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
-
+        
 def execute_trade(instrument):
     data = get_latest_data(instrument)
     
