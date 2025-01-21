@@ -189,6 +189,9 @@ def execute_trade(instrument):
 
         features = create_features(
             market_data['close_prices'],
+            market_data['high_prices'],  # Add high_prices
+            market_data['low_prices'],   # Add low_prices
+            market_data['close_prices'],
             market_data['volumes'],
             market_data['timestamps']
         )
