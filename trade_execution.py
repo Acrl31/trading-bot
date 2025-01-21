@@ -169,8 +169,8 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        stop_loss = current_price - atr * 0.5 if prediction == 1 else current_price + atr * 0.5
-        take_profit = current_price + atr * 1.5 if prediction == 1 else current_price - atr * 1.5
+        stop_loss = current_price - atr * 0.25 if prediction == 1 else current_price + atr * 0.25
+        take_profit = current_price + atr * 0.75 if prediction == 1 else current_price - atr * 0.75
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
