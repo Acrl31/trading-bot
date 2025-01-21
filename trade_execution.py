@@ -209,7 +209,7 @@ def execute_trade(instrument):
         
         # Set wider multipliers for SL and TP based on ATR for more room
         sl_multiplier = 2    # Increased from 0.5 to 1.5
-        tp_multiplier = 3    # Increased from 1 to 2
+        tp_multiplier = 4   # Increased from 1 to 2
         
         stop_loss = current_price - (sl_multiplier * atr)
         take_profit = current_price + (tp_multiplier * atr)
