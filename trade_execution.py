@@ -195,7 +195,9 @@ def execute_trade(instrument):
             market_data['volumes'],
             market_data['timestamps']
         )
-        prediction = MODEL.predict(features)[0]
+        prediction = MODEL.predict(features)        [0]
+        prediction_proba = MODEL.predict_proba(features)[0]  # Probabilities for each class
+        print(f"Prediction: {prediction}, Buy Probability: {prediction_proba[1]}, Sell Probability: {prediction_proba[0]}")
         atr = calculate_atr(
             market_data['close_prices'],
             market_data['high_prices'],
