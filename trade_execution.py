@@ -32,7 +32,7 @@ def get_account_balance():
         response = CLIENT.request(account_request)
         balance = float(response['account']['balance'])
         return balance
-    except oandapyv20.exceptions.V20Error as e:
+    except oandapyV20.exceptions.V20Error as e:
         print(f"Error fetching account balance: {e}")
         return None
 
@@ -148,7 +148,7 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
             "order": {
                 "units": trade_amount if side == "buy" else -trade_amount,
                 "instrument": instrument,
-                "timeInForce": "FOK",
+                "timeInForce": "GTC",  # Changed to GTC (Good Till Canceled) for testing
                 "type": "LIMIT",
                 "price": str(rounded_price),
                 "stopLossOnFill": {"price": str(rounded_stop_loss)},
@@ -157,15 +157,21 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
             }
         }
 
+        # Log the order payload
+        print(f"Order Payload: {order_payload}")
+
         # Send the request
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
-        CLIENT.request(r)
+        response = CLIENT.request(r)
 
-        return f"FOK {side} order executed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
+        # Log full response for debugging
+        print(f"Order Response: {response}")
+        
+        return f"Limit {side} order placed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
     
-    except oandapyv20.exceptions.V20Error as e:
+    except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing FOK order: {e}")
-        return "Error executing order."
+        return f"Error executing order: {e}"
 
 def execute_trade(instrument):
     try:
@@ -204,10 +210,12 @@ def execute_trade(instrument):
 
         side = "buy" if prediction == 1 else "sell"
         return execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+    
     except Exception as e:
-        print(f"Error during trade execution: {e}")
-        return "Error during trade execution."
+        print(f"Error executing trade: {e}")
+        return f"Error executing trade: {e}"
 
-if __name__ == "__main__":
-    for instrument in INSTRUMENTS:
-        print(execute_trade(instrument))
+# Example usage for a single trade:
+instrument = 'EUR_USD'
+result = execute_trade(instrument)
+print(result)
