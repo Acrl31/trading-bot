@@ -128,37 +128,22 @@ def get_instrument_precision(instrument):
     }
     return precision_map.get(instrument, 5)  # Default to 5 if not specified
 
-def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
+def execute_limit_order(instrument, side, trade_amount, stop_loss, take_profit, target_price):
     try:
         # Get the instrument's pip size
         precision = get_instrument_precision(instrument)
         pip_size = 10 ** -precision  # For EUR/USD, pip size would be 0.0001 for precision=5
 
         # Log current price, limit price, and trade amount
-        print(f"Current Price: {current_price}, Trade Amount: {trade_amount}")
-
-        # Define the maximum number of pips away from current price that the limit order can be
-        max_pip_distance = 3  # Limit the order to be 3 pips away at most
-
-        # Calculate the limit price based on max pip distance
-        if side == "buy":
-            limit_price = current_price + (max_pip_distance * pip_size)
-        else:
-            limit_price = current_price - (max_pip_distance * pip_size)
-
-        # Check if the calculated limit price is too far away from the current market price
-        price_diff = abs(current_price - limit_price) * (10 ** precision)  # Calculate the pip distance
-        if price_diff > max_pip_distance:
-            print(f"Order is too far away (max {max_pip_distance} pips). Skipping order.")
-            return f"Order is too far away (max {max_pip_distance} pips). Skipping order."
+        print(f"Target Price: {target_price}, Trade Amount: {trade_amount}")
 
         # Round price, stop loss, and take profit to the correct precision
-        rounded_price = round(limit_price, precision)
+        rounded_target_price = round(target_price, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
 
         # Log the rounded values
-        print(f"Limit Order Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
+        print(f"Limit Order Price: {rounded_target_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
 
         # Construct the order payload
         order_payload = {
@@ -167,7 +152,7 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
                 "instrument": instrument,
                 "timeInForce": "GTC",  # Good Till Canceled
                 "type": "LIMIT",
-                "price": str(rounded_price),
+                "price": str(rounded_target_price),
                 "stopLossOnFill": {"price": str(rounded_stop_loss)},
                 "takeProfitOnFill": {"price": str(rounded_take_profit)},
                 "positionFill": "DEFAULT",
@@ -184,10 +169,10 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         # Log full response for debugging
         print(f"Order Response: {response}")
 
-        return f"Limit {side} order placed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
+        return f"Limit {side} order placed for {instrument} at price {rounded_target_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
 
     except oandapyV20.exceptions.V20Error as e:
-        print(f"Error executing FOK order: {e}")
+        print(f"Error executing LIMIT order: {e}")
         return f"Error executing order: {e}"
 
 def execute_trade(instrument):
@@ -218,12 +203,16 @@ def execute_trade(instrument):
         take_profit = round(atr * 4, 5)
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         confidence = get_confidence(features, prediction)
-        
+
         if confidence < 30:
             return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
-        return execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
+        
+        # Set a target price for the order based on strategy
+        target_price = current_price * 1.01 if side == "buy" else current_price * 0.99  # Example of setting target price
+        
+        return execute_limit_order(instrument, side, trade_amount, stop_loss, take_profit, target_price)
     except Exception as e:
         print(f"Error during trade execution: {e}")
         return "Error during trade execution."
