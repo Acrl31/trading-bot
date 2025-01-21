@@ -161,6 +161,7 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
+        print(f"Order Response: {response}")
         
         # Create trade message
         order_message = f"{side.capitalize()} order placed for {instrument}. {rounded_trade_amount} units @ {rounded_price}. SL: {rounded_stop_loss}, TP: {rounded_take_profit}"
