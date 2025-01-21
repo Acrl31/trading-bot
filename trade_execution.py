@@ -32,7 +32,7 @@ def get_account_balance():
         response = CLIENT.request(account_request)
         balance = float(response['account']['balance'])
         return balance
-    except oandapyV20.exceptions.V20Error as e:
+    except oandapyv20.exceptions.V20Error as e:
         print(f"Error fetching account balance: {e}")
         return None
 
@@ -130,25 +130,36 @@ def get_instrument_precision(instrument):
 
 def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
     try:
+        # Get the instrument's pip size
         precision = get_instrument_precision(instrument)
-        
+        pip_size = 10 ** -precision  # For EUR/USD, pip size would be 0.0001 for precision=5
+
         # Log current price, limit price, and trade amount
         print(f"Current Price: {current_price}, Trade Amount: {trade_amount}")
-        
+
+        # Define the maximum number of pips away from current price that the limit order can be
+        max_pip_distance = 5  # Limit the order to be 5 pips away at most
+
+        # Calculate the limit price based on max pip distance
+        if side == "buy":
+            limit_price = current_price + (max_pip_distance * pip_size)
+        else:
+            limit_price = current_price - (max_pip_distance * pip_size)
+
         # Round price, stop loss, and take profit to the correct precision
-        rounded_price = round(current_price, precision)
+        rounded_price = round(limit_price, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
-        
+
         # Log the rounded values
-        print(f"Rounded Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
-        
+        print(f"Limit Order Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
+
         # Construct the order payload
         order_payload = {
             "order": {
                 "units": trade_amount if side == "buy" else -trade_amount,
                 "instrument": instrument,
-                "timeInForce": "GTC",  # Changed to GTC (Good Till Canceled) for testing
+                "timeInForce": "GTC",  # Good Till Canceled
                 "type": "LIMIT",
                 "price": str(rounded_price),
                 "stopLossOnFill": {"price": str(rounded_stop_loss)},
@@ -166,9 +177,9 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         # Log full response for debugging
         print(f"Order Response: {response}")
-        
+
         return f"Limit {side} order placed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
-    
+
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing FOK order: {e}")
         return f"Error executing order: {e}"
@@ -201,21 +212,16 @@ def execute_trade(instrument):
         take_profit = round(atr * 4, 5)
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         confidence = get_confidence(features, prediction)
-
-        # Log the prediction and confidence
-        print(f"Prediction: {prediction}, Confidence: {confidence}%")
         
         if confidence < 30:
             return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
         return execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
-    
     except Exception as e:
-        print(f"Error executing trade: {e}")
-        return f"Error executing trade: {e}"
+        print(f"Error during trade execution: {e}")
+        return "Error during trade execution."
 
-# Main execution loop for all instruments
-for instrument in INSTRUMENTS:
-    result = execute_trade(instrument)
-    print(f"Trade result for {instrument}: {result}")
+if __name__ == "__main__":
+    for instrument in INSTRUMENTS:
+        print(execute_trade(instrument))
