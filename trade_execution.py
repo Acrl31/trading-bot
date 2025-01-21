@@ -211,3 +211,31 @@ def execute_trade(instrument):
         stop_loss = round(atr * 2, 5)
         take_profit = round(atr * 4, 5)
         current_price = market
+        current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
+
+        # Adjust stop loss and take profit based on price direction
+        if prediction == 1:
+            stop_loss = current_price - stop_loss
+            take_profit = current_price + take_profit
+        else:
+            stop_loss = current_price + stop_loss
+            take_profit = current_price - take_profit
+
+        # Execute the FOK order
+        order_status = execute_fok_order(instrument, 'buy' if prediction == 1 else 'sell', trade_amount, stop_loss, take_profit, current_price)
+        
+        return order_status
+
+    except Exception as e:
+        print(f"Error executing trade: {e}")
+        return "Error executing trade."
+
+# Main function to run the strategy
+def run_trading_strategy():
+    for instrument in INSTRUMENTS:
+        print(f"Executing trade for {instrument}...")
+        order_status = execute_trade(instrument)
+        print(order_status)
+
+if __name__ == "__main__":
+    run_trading_strategy()
