@@ -71,22 +71,12 @@ def create_features(close_prices, volumes, timestamps):
     features['Volatility'] = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['Volume_Change'] = ((volumes[-1] - volumes[-2]) / volumes[-2]) * 100 if len(volumes) >= 2 else np.nan
     features['Lag_Close_1'] = close_prices[-2] if len(close_prices) >= 2 else np.nan
-    features['Lag_Close_2'] = close_prices[-3] if len(close_prices) >= 3 else np.nan
     features['Lag_Volume_1'] = volumes[-2] if len(volumes) >= 2 else np.nan
-
-    if timestamps:
-        last_timestamp = isoparse(timestamps[-1])
-        features['Day_Of_Week'] = last_timestamp.weekday()
-        features['Hour_Of_Day'] = last_timestamp.hour
-        features['Lag_Hour_1'] = isoparse(timestamps[-2]).hour if len(timestamps) >= 2 else np.nan
-    else:
-        features['Day_Of_Week'] = features['Hour_Of_Day'] = features['Lag_Hour_1'] = np.nan
 
     features_df = pd.DataFrame([features]).fillna(0)
     feature_order = [
         'SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 'Volume_Change',
-        'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1', 'Day_Of_Week',
-        'Hour_Of_Day', 'Lag_Hour_1'
+        'Lag_Close_1', 'Lag_Volume_1'
     ]
     return features_df[feature_order]
 
