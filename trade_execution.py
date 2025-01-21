@@ -101,24 +101,57 @@ def get_confidence(features, prediction):
         print(f"Error calculating confidence: {e}")
         return 0
 
+def get_instrument_precision(instrument):
+    """
+    Get the precision allowed for a specific instrument.
+    
+    Parameters:
+        instrument (str): The instrument to trade (e.g., "XAG_USD").
+    
+    Returns:
+        int: The number of decimal places allowed.
+    """
+    precision_map = {
+        "XAU_USD": 2,  # Gold
+        "XAG_USD": 3,  # Silver
+        "EUR_USD": 5,  # Euro/USD
+        "USD_JPY": 3,  # USD/JPY
+        "GBP_USD": 5,  # GBP/USD
+        "AUD_USD": 5,  # AUD/USD
+    }
+    return precision_map.get(instrument, 5)  # Default to 5 if not specified
+
 def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
     try:
+        # Get precision for the instrument
+        precision = get_instrument_precision(instrument)
+        
+        # Round price, stop loss, and take profit to the correct precision
+        rounded_price = round(current_price, precision)
+        rounded_stop_loss = round(stop_loss, precision)
+        rounded_take_profit = round(take_profit, precision)
+
+        # Construct the order payload
         order_payload = {
             "order": {
                 "units": trade_amount if side == "buy" else -trade_amount,
                 "instrument": instrument,
                 "timeInForce": "FOK",
                 "type": "LIMIT",
-                "price": round(current_price, 5),
-                "stopLoss": round(stop_loss, 5),
-                "takeProfit": round(take_profit, 5),
-                "positionFill": "DEFAULT"
+                "price": str(rounded_price),
+                "stopLossOnFill": {"price": str(rounded_stop_loss)},
+                "takeProfitOnFill": {"price": str(rounded_take_profit)},
+                "positionFill": "DEFAULT",
             }
         }
-        request = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
-        CLIENT.request(request)
-        return f"FOK {side} order executed for {instrument} at price {current_price} with SL {stop_loss} and TP {take_profit}."
-    except Exception as e:
+
+        # Send the request
+        r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
+        CLIENT.request(r)
+
+        return f"FOK {side} order executed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
+
+    except oandapyv20.exceptions.V20Error as e:
         print(f"Error executing FOK order: {e}")
         return "Error executing order."
 
