@@ -1,161 +1,144 @@
-import boto3
+import os
+import pandas as pd
 import oandapyV20
 import oandapyV20.endpoints.orders as orders
-import oandapyV20.endpoints.account as account
+import oandapyV20.endpoints.accounts as accounts
 import joblib
-import pandas as pd
 import numpy as np
 from datetime import datetime
 
-# Initialize AWS SNS client
-sns_client = boto3.client('sns', region_name='eu-west-1')
-SNS_TOPIC_ARN = 'arn:aws:sns:eu-west-1:183631325876:ForexSNS'
-
-# Initialize OANDA client
-API_KEY = os.getenv("API_KEY")
+# OANDA API credentials (replace with your own)
+ACCESS_TOKEN = os.getenv("API_KEY")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID")
-client = oandapyV20.API(access_token=API_KEY)
+CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 
-# Load the pre-trained model
-MODEL_PATH = 'models/trading_model.pkl'
-model = joblib.load(MODEL_PATH)
+# Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
+MODEL = joblib.load('models/trading_model.pkl')
 
-# Instruments to trade
-INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
+# List of instruments to trade (same as in your model)
+INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD', 'XAU_USD', 'XAG_USD']
 
-# Fetch account balance
+# Function to get the available balance from OANDA
 def get_balance():
-    account_details = account.AccountDetails(ACCOUNT_ID)
-    response = client.request(account_details)
-    balance = float(response['account']['balance'])
-    return balance
+    try:
+        # Get account information from OANDA
+        response = CLIENT.request(accounts.AccountSummary(ACCOUNT_ID))
+        balance = float(response['account']['balance'])  # Get the balance from the account
+        return balance
+    except Exception as e:
+        print(f"Error fetching account balance: {e}")
+        return None
 
-# Calculate ATR manually
-def calculate_atr(instrument, period=14):
+# Function to get the latest market data from OANDA (close, high, and low prices)
+def get_latest_data(instrument):
     params = {
-        "granularity": "M1",
-        "count": period + 1,  # To get enough data for calculation
+        "granularity": "H1",  # 1-hour candles, adjust as needed
+        "count": 100  # Fetch the latest 100 data points for volatility calculation
     }
-    response = client.request(oandapyV20.endpoints.pricing.PricingInfo(instrument=instrument, params=params))
-    prices = response['prices']
+    
+    # Request data from OANDA
+    try:
+        response = oandapyV20.endpoints.Instruments.InstrumentsCandles(instrument=instrument, params=params)
+        CLIENT.request(response)
+        candles = response.response['candles']
+        
+        # Extract relevant data (close, high, and low prices)
+        close_prices = [float(candle['mid']['c']) for candle in candles]
+        high_prices = [float(candle['mid']['h']) for candle in candles]
+        low_prices = [float(candle['mid']['l']) for candle in candles]
+        
+        return np.array(close_prices), np.array(high_prices), np.array(low_prices)
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return None, None, None
 
-    high_prices = [float(price['high']) for price in prices]
-    low_prices = [float(price['low']) for price in prices]
-    close_prices = [float(price['closeBid']) for price in prices]
-
-    # Calculate the True Range (TR) for each period
-    tr = [max(high_prices[i] - low_prices[i], abs(high_prices[i] - close_prices[i-1]), abs(low_prices[i] - close_prices[i-1])) 
-          for i in range(1, len(prices))]
-
-    # Calculate the ATR as the average of the last 'period' TR values
-    atr = np.mean(tr[-period:])
+# Calculate the Average True Range (ATR) for an instrument (to use for stop loss and take profit)
+def calculate_atr(instrument, window=14):
+    close_prices, high_prices, low_prices = get_latest_data(instrument)
+    if close_prices is None or len(close_prices) < window:
+        return None
+    
+    # Calculate True Range (TR) values
+    high_low = high_prices - low_prices
+    high_close = np.abs(high_prices - close_prices[:-1])
+    low_close = np.abs(low_prices - close_prices[:-1])
+    
+    tr = np.maximum(high_low, np.maximum(high_close, low_close))
+    atr = np.mean(tr[-window:])
     return atr
 
-# Get the latest market data for the instrument
-def get_market_data(instrument):
-    params = {
-        "instruments": instrument,
-    }
-    response = client.request(oandapyV20.endpoints.pricing.PricingInfo(instrument=instrument, params=params))
-    price = response['prices'][0]
-    return {
-        'bid': float(price['closeBid']),
-        'ask': float(price['closeAsk']),
-        'time': price['time'],
-    }
-
-# Prepare data for prediction
-def prepare_data(instrument):
-    # Get historical data for the instrument (this is an example, adjust as needed)
-    params = {
-        "granularity": "M1",
-        "count": 100,  # You can adjust this as needed
-    }
-    response = client.request(oandapyV20.endpoints.pricing.PricingInfo(instrument=instrument, params=params))
-    prices = response['prices']
-
-    # Prepare the necessary features
-    data = pd.DataFrame({
-        'close': [float(price['closeBid']) for price in prices],
-        'high': [float(price['high']) for price in prices],
-        'low': [float(price['low']) for price in prices],
-        'volume': [float(price['volume']) for price in prices],
-    })
-
-    data['SMA_5'] = data['close'].rolling(window=5).mean()
-    data['SMA_20'] = data['close'].rolling(window=20).mean()
-    data['Price_Change'] = data['close'].pct_change()
-    data['Volatility'] = data['high'] - data['low']
-    data['Volume_Change'] = data['volume'].pct_change()
-
-    # Lag features
-    data['Lag_Close_1'] = data['close'].shift(1)
-    data['Lag_Close_2'] = data['close'].shift(2)
-    data['Lag_Volume_1'] = data['volume'].shift(1)
-
-    data.dropna(inplace=True)
-
-    features = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 'Volume_Change', 'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1']]
-    return features
-
-# Execute trade based on the model's prediction
+# Function to execute a trade (buy, sell, or hold)
 def execute_trade(instrument):
-    # Get current market data and prepare features
-    market_data = get_market_data(instrument)
-    features = prepare_data(instrument)
-    latest_features = features.iloc[-1].values.reshape(1, -1)
+    # Fetch the available balance
+    balance = get_balance()
+    if balance is None:
+        return
+    
+    # Calculate trade amount (1% of available balance)
+    trade_amount = balance * 0.01  # 1% of available balance
 
-    # Predict using the model
-    prediction = model.predict(latest_features)
-    confidence = model.predict_proba(latest_features)[0][1]  # Confidence of the 'buy' prediction
-
-    # Skip trade if confidence is below the threshold
-    if confidence < 0.7:  # You can adjust this threshold as needed
+    # Calculate ATR for dynamic stop loss and take profit
+    atr = calculate_atr(instrument)
+    if atr is None:
         return
 
-    # Get account balance and calculate trade size (1% of balance)
-    balance = get_balance()
-    trade_value = 0.01 * balance  # 1% of the balance
+    # Dynamically adjust stop loss and take profit based on ATR
+    stop_loss = atr * 2  # Example: stop loss is 2x ATR
+    take_profit = atr * 4  # Example: take profit is 4x ATR
 
-    # Calculate ATR for SL and TP
-    atr = calculate_atr(instrument)
-    sl = market_data['ask'] - 2 * atr  # Stop loss 2x ATR below ask price
-    tp = market_data['ask'] + 2 * atr  # Take profit 2x ATR above ask price
+    # Fetch the latest data for prediction
+    close_prices, _, _ = get_latest_data(instrument)
+    if close_prices is None or len(close_prices) == 0:
+        return
+    latest_data = close_prices[-1].reshape(1, -1)  # Only use the last data point
+    
+    # Predict the action (buy, sell, or hold)
+    prediction = MODEL.predict(latest_data)
+    print(f"Model predicted action for {instrument}: {prediction[0]}")
 
-    # Round SL and TP to 5 decimal places
-    sl = round(sl, 5)
-    tp = round(tp, 5)
-
-    # Place the trade
-    order = orders.OrderCreate(
-        ACCOUNT_ID,
-        data={
-            "order": {
-                "units": trade_value // market_data['ask'],  # Calculate number of units to trade
-                "instrument": instrument,
-                "timeInForce": "FOK",
-                "type": "LIMIT",
-                "price": market_data['ask'],
-                "stopLoss": sl,
-                "takeProfit": tp,
+    # Only trade if the model's confidence is high enough
+    if prediction == 1:  # Buy signal
+        print(f"Placing Buy Order for {instrument}...")
+        order = orders.OrderCreate(
+            ACCOUNT_ID,
+            data={
+                "order": {
+                    "units": trade_amount,  # Buy order with the specified amount
+                    "instrument": instrument,
+                    "time_in_force": "GTC",
+                    "type": "MARKET",
+                    "position_fill": "DEFAULT",
+                    "stopLoss": {"price": str(close_prices[-1] - stop_loss)},
+                    "takeProfit": {"price": str(close_prices[-1] + take_profit)},
+                }
             }
-        }
-    )
-    client.request(order)
+        )
+        CLIENT.request(order)
+        print(f"Buy order placed for {instrument} successfully!")
+    
+    elif prediction == -1:  # Sell signal
+        print(f"Placing Sell Order for {instrument}...")
+        order = orders.OrderCreate(
+            ACCOUNT_ID,
+            data={
+                "order": {
+                    "units": -trade_amount,  # Sell order with the specified amount
+                    "instrument": instrument,
+                    "time_in_force": "GTC",
+                    "type": "MARKET",
+                    "position_fill": "DEFAULT",
+                    "stopLoss": {"price": str(close_prices[-1] + stop_loss)},
+                    "takeProfit": {"price": str(close_prices[-1] - take_profit)},
+                }
+            }
+        )
+        CLIENT.request(order)
+        print(f"Sell order placed for {instrument} successfully!")
+    
+    else:
+        print(f"No action taken for {instrument}. Model predicted 'hold'.")
 
-    # Send SNS notification
-    sns_client.publish(
-        TopicArn=SNS_TOPIC_ARN,
-        Message=f"Trade executed for {instrument}.\nType: {'Buy' if prediction == 1 else 'Sell'}\n"
-                f"Units: {trade_value // market_data['ask']}\n"
-                f"SL: {sl}\nTP: {tp}\nConfidence: {confidence}",
-        Subject=f"Trade Notification for {instrument}",
-    )
-
-# Main loop to execute trades for each instrument
-def run_trading_bot():
+# Run the trading script for all instruments
+if __name__ == "__main__":
     for instrument in INSTRUMENTS:
         execute_trade(instrument)
-
-if __name__ == "__main__":
-    run_trading_bot()
