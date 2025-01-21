@@ -158,21 +158,25 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
         
+        # Adjust stop loss and take profit based on whether it's a buy or sell
+        if side == "buy":
+            stop_loss = current_price - (stop_loss * slippage)
+            take_profit = current_price + (take_profit * slippage)
+        elif side == "sell":
+            stop_loss = current_price + (stop_loss * slippage)
+            take_profit = current_price - (take_profit * slippage)
+        
         # Ensure stop loss and take profit are at a reasonable distance
-        slippage_stop_loss = stop_loss if side == "buy" else current_price + 0.001
-        slippage_take_profit = take_profit if side == "buy" else current_price - 0.001
+        min_distance = 0.0010  # 10 pips for EUR/JPY
+        if abs(stop_loss - take_profit) < min_distance:
+            if side == "buy":
+                take_profit = stop_loss + min_distance
+            else:
+                take_profit = stop_loss - min_distance
         
         # Round the prices
-        rounded_stop_loss = round(slippage_stop_loss, precision)
-        rounded_take_profit = round(slippage_take_profit, precision)
-        
-        # Ensure there's a minimum difference between stop loss and take profit
-        min_distance = 0.0010  # 10 pips for EUR/JPY
-        if abs(rounded_stop_loss - rounded_take_profit) < min_distance:
-            if side == "buy":
-                rounded_take_profit = rounded_stop_loss + min_distance
-            else:
-                rounded_take_profit = rounded_stop_loss - min_distance
+        rounded_stop_loss = round(stop_loss, precision)
+        rounded_take_profit = round(take_profit, precision)
         
         print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
