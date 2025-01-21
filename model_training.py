@@ -102,10 +102,6 @@ def train_model(X, y):
     tscv = TimeSeriesSplit(n_splits=5)
     cv_scores = []
 
-    # Print the features used for training
-    print("Features used for training:")
-    print(X.columns if hasattr(X, 'columns') else "X is not a DataFrame, unable to print columns.")
-    
     # Train the model
     model = GradientBoostingClassifier(
         n_estimators=250,
@@ -163,6 +159,7 @@ if __name__ == "__main__":
     data = add_features(data)
     print("Preprocessing data...")
     X, y, features = preprocess_data(data)
+    print("Using features:", features)  # Print out all the features being used
     print("Training model...")
     trained_model = train_model(X, y)
     print("Model training complete.")
