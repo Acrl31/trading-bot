@@ -130,14 +130,19 @@ def get_instrument_precision(instrument):
 
 def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, current_price):
     try:
-        # Get precision for the instrument
         precision = get_instrument_precision(instrument)
+        
+        # Log current price, limit price, and trade amount
+        print(f"Current Price: {current_price}, Trade Amount: {trade_amount}")
         
         # Round price, stop loss, and take profit to the correct precision
         rounded_price = round(current_price, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
-
+        
+        # Log the rounded values
+        print(f"Rounded Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
+        
         # Construct the order payload
         order_payload = {
             "order": {
@@ -157,7 +162,7 @@ def execute_fok_order(instrument, side, trade_amount, stop_loss, take_profit, cu
         CLIENT.request(r)
 
         return f"FOK {side} order executed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
-
+    
     except oandapyv20.exceptions.V20Error as e:
         print(f"Error executing FOK order: {e}")
         return "Error executing order."
@@ -190,6 +195,9 @@ def execute_trade(instrument):
         take_profit = round(atr * 4, 5)
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         confidence = get_confidence(features, prediction)
+
+        # Log the prediction and confidence
+        print(f"Prediction: {prediction}, Confidence: {confidence}%")
         
         if confidence < 30:
             return "Confidence too low to execute trade."
