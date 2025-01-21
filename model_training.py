@@ -1,12 +1,11 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-import matplotlib.pyplot as plt
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -34,13 +33,29 @@ def add_features(df):
     Add technical and statistical features to the data.
     """
     df['returns'] = df['close'].pct_change()
+    df['volatility'] = df['returns'].rolling(window=10).std()
     df['ma_short'] = df['close'].rolling(window=5).mean()
     df['ma_long'] = df['close'].rolling(window=20).mean()
+    df['ma_diff'] = df['ma_short'] - df['ma_long']
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
     df['ema_diff'] = df['ema_short'] - df['ema_long']
-    df['macd'] = df['ema_short'] - df['ema_long']  # Removed original 'macd' related columns
-    df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()  # Removed the 'macd_diff' feature
+    rolling_std = df['close'].rolling(window=20).std()
+    df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
+    df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
+    df['bollinger_bandwidth'] = df['bollinger_upper'] - df['bollinger_lower']
+    delta = df['close'].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=14).mean()
+    avg_loss = pd.Series(loss).rolling(window=14).mean()
+    rs = avg_gain / (avg_loss + 1e-9)
+    df['rsi'] = 100 - (100 / (1 + rs))
+    ema_12 = df['close'].ewm(span=12, adjust=False).mean()
+    ema_26 = df['close'].ewm(span=26, adjust=False).mean()
+    df['macd'] = ema_12 - ema_26
+    df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+    df['macd_diff'] = df['macd'] - df['macd_signal']
     df['high_low_diff'] = df['high'] - df['low']
     df['open_close_diff'] = df['open'] - df['close']
     return df.dropna()
@@ -74,18 +89,26 @@ def preprocess_data(df):
 
 def train_model(X, y):
     """
-    Train a Random Forest model and evaluate its performance.
+    Train a Random Forest model and evaluate its performance with hyperparameter tuning.
     """
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-    # Train the model
-    model = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=10,
-        random_state=RANDOM_STATE,
-        n_jobs=-1
-    )
+    # Hyperparameter tuning using GridSearchCV
+    param_grid = {
+        'n_estimators': [100, 200],
+        'max_depth': [5, 10, 15],
+        'min_samples_split': [2, 5],
+        'min_samples_leaf': [1, 2]
+    }
+    grid_search = GridSearchCV(RandomForestClassifier(random_state=RANDOM_STATE, n_jobs=-1), param_grid, cv=3, n_jobs=-1, verbose=1)
+    grid_search.fit(X_train, y_train)
+    best_params = grid_search.best_params_
+
+    print(f"Best hyperparameters: {best_params}")
+
+    # Train the model with the best parameters
+    model = RandomForestClassifier(**best_params, random_state=RANDOM_STATE, n_jobs=-1)
     model.fit(X_train, y_train)
 
     # Evaluate the model
