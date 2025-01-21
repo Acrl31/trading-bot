@@ -17,7 +17,7 @@ CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 # Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
 MODEL = joblib.load('models/trading_model.pkl')
 
-# List of instruments to trade (removing Gold and Silver)
+# List of instruments to trade (same as in your model)
 INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD']
 
 def get_account_balance():
@@ -116,15 +116,19 @@ def get_instrument_precision(instrument):
 def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
     try:
         precision = get_instrument_precision(instrument)
+        
+        # Round trade_amount to the allowed precision for the instrument
+        rounded_trade_amount = round(trade_amount, 2)  # Adjust '2' to the precision allowed for the instrument
+        
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
-        print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}")
+        print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
         order_payload = {
             "order": {
-                "units": trade_amount if side == "buy" else -trade_amount,
+                "units": rounded_trade_amount if side == "buy" else -rounded_trade_amount,
                 "instrument": instrument,
                 "timeInForce": "IOC",
                 "type": "MARKET",
@@ -165,8 +169,8 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        stop_loss = current_price - atr * 1.5 if prediction == 1 else current_price + atr * 1.5  # Adjusted SL multiplier
-        take_profit = current_price + atr * 3 if prediction == 1 else current_price - atr * 3  # Adjusted TP multiplier
+        stop_loss = current_price - atr * 2 if prediction == 1 else current_price + atr * 2
+        take_profit = current_price + atr * 4 if prediction == 1 else current_price - atr * 4
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
