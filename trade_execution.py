@@ -21,12 +21,6 @@ MODEL = joblib.load('models/trading_model.pkl')
 INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD', 'XAU_USD', 'XAG_USD']
 
 def get_account_balance():
-    """
-    Fetch the current balance of the account.
-    
-    Returns:
-        float: The account balance.
-    """
     try:
         account_request = accounts.AccountDetails(ACCOUNT_ID)
         response = CLIENT.request(account_request)
@@ -93,7 +87,9 @@ def calculate_atr(close_prices, high_prices, low_prices, period=14):
         axis=1
     )
     df['atr'] = df['tr'].ewm(span=period, min_periods=1).mean()
-    return df['atr'].iloc[-1]
+    atr_value = df['atr'].iloc[-1]
+    print(f"Calculated ATR: {atr_value}")
+    return atr_value
 
 def get_confidence(features, prediction):
     try:
@@ -109,54 +105,30 @@ def get_confidence(features, prediction):
         return 0
 
 def get_instrument_precision(instrument):
-    """
-    Get the precision allowed for a specific instrument.
-    
-    Parameters:
-        instrument (str): The instrument to trade (e.g., "XAG_USD").
-    
-    Returns:
-        int: The number of decimal places allowed.
-    """
     precision_map = {
-        "XAU_USD": 2,  # Gold
-        "XAG_USD": 3,  # Silver
-        "EUR_USD": 5,  # Euro/USD
-        "USD_JPY": 3,  # USD/JPY
-        "GBP_USD": 5,  # GBP/USD
-        "AUD_USD": 5,  # AUD/USD
+        "XAU_USD": 2,
+        "XAG_USD": 3,
+        "EUR_USD": 5,
+        "USD_JPY": 3,
+        "GBP_USD": 5,
+        "AUD_USD": 5,
     }
-    return precision_map.get(instrument, 5)  # Default to 5 if not specified
+    return precision_map.get(instrument, 5)
 
 def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
     try:
-        # Get the instrument's precision
         precision = get_instrument_precision(instrument)
-        pip_size = 10 ** -precision  # For EUR/USD, pip size would be 0.0001 for precision=5
-
-        # Adjust the price for slippage
-        if side == "buy":
-            slippage_adjustment = current_price + slippage
-        else:
-            slippage_adjustment = current_price - slippage
-
-        # Log price adjustments for debugging
-        print(f"Slippage Adjustment: {slippage_adjustment}, Original Price: {current_price}")
-
-        # Round the price, stop loss, and take profit to the correct precision
+        slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
+        print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}")
 
-        # Log the rounded prices for debugging
-        print(f"Rounded Order Details - Price: {rounded_price}, Stop Loss: {rounded_stop_loss}, Take Profit: {rounded_take_profit}")
-
-        # Construct the order payload for market order
         order_payload = {
             "order": {
                 "units": trade_amount if side == "buy" else -trade_amount,
                 "instrument": instrument,
-                "timeInForce": "IOC",  # Immediate Or Cancel
+                "timeInForce": "IOC",
                 "type": "MARKET",
                 "stopLossOnFill": {"price": str(rounded_stop_loss)},
                 "takeProfitOnFill": {"price": str(rounded_take_profit)},
@@ -164,15 +136,10 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
             }
         }
 
-        # Send the request for the market order
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
-
-        # Log the response for debugging
         print(f"Order Response: {response}")
-
-        return f"Market {side} order placed for {instrument} at price {rounded_price} with SL {rounded_stop_loss} and TP {rounded_take_profit}."
-
+        return f"Market {side} order placed for {instrument}."
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
         return f"Error executing order: {e}"
@@ -182,10 +149,7 @@ def execute_trade(instrument):
         balance = get_account_balance()
         if not balance:
             return "Error: Unable to retrieve account balance."
-        
-        # Ensure that the trade size is at most 1% of the balance
         trade_amount = balance * 0.01
-        
         market_data = get_latest_data(instrument)
         if not market_data:
             return "Error: Unable to fetch market data."
@@ -201,11 +165,13 @@ def execute_trade(instrument):
             market_data['high_prices'],
             market_data['low_prices']
         )
-        stop_loss = round(atr * 2, 5)
-        take_profit = round(atr * 4, 5)
+
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
+        stop_loss = current_price - atr * 2 if prediction == 1 else current_price + atr * 2
+        take_profit = current_price + atr * 4 if prediction == 1 else current_price - atr * 4
+
+        print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
-        
         if confidence < 30:
             return "Confidence too low to execute trade."
 
