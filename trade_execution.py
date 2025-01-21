@@ -121,7 +121,6 @@ def calculate_atr(close_prices, high_prices, low_prices, period=14):
 def get_confidence(features, prediction):
     try:
         prob = MODEL.predict_proba(features)[0]
-        print(f"Probabilities: {prob}")  # Debug the output
         # Adjust the condition to handle 0 and 1 instead of -1 and 1
         if prediction == 1:
             confidence = prob[1]  # Probability of class 1 (positive)
@@ -207,9 +206,17 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        # Set tighter multipliers for SL and TP for scalping
-        stop_loss = current_price - atr * 0.5 if prediction == 1 else current_price + atr * 0.5
-        take_profit = current_price + atr * 1 if prediction == 1 else current_price - atr * 1
+        
+        # Set wider multipliers for SL and TP based on ATR for more room
+        sl_multiplier = 1.5  # Increased from 0.5 to 1.5
+        tp_multiplier = 2    # Increased from 1 to 2
+        
+        stop_loss = current_price - atr * sl_multiplier if prediction == 1 else current_price + atr * sl_multiplier
+        take_profit = current_price + atr * tp_multiplier if prediction == 1 else current_price - atr * tp_multiplier
+
+        # Ensure SL and TP are within a reasonable range
+        if abs(stop_loss - current_price) < atr * 0.5 or abs(take_profit - current_price) < atr * 1:
+            return "Error: SL or TP too tight."
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
