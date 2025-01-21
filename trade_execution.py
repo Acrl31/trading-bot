@@ -17,17 +17,17 @@ CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 # Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
 MODEL = joblib.load('models/trading_model.pkl')
 
-# List of instruments to trade (same as in your model)
+# List of instruments to trade (optimized for scalping)
 INSTRUMENTS = [
     'EUR_USD',  # Euro / US Dollar
     'USD_JPY',  # US Dollar / Japanese Yen
     'GBP_USD',  # British Pound / US Dollar
     'AUD_USD',  # Australian Dollar / US Dollar
+    'USD_CAD',  # US Dollar / Canadian Dollar
     'USD_CHF',  # US Dollar / Swiss Franc
     'EUR_JPY',  # Euro / Japanese Yen
     'GBP_JPY',  # British Pound / Japanese Yen
     'EUR_GBP',  # Euro / British Pound
-    'USD_CAD',  # US Dollar / Canadian Dollar
     'NZD_USD'   # New Zealand Dollar / US Dollar
 ]
 
@@ -43,7 +43,7 @@ def get_account_balance():
 
 def get_latest_data(instrument):
     try:
-        params = {"granularity": "H1", "count": 100, "price": "M"}
+        params = {"granularity": "M1", "count": 100, "price": "M"}
         request = instruments.InstrumentsCandles(instrument, params=params)
         response = CLIENT.request(request)
         candles = response['candles']
@@ -65,20 +65,22 @@ def get_latest_data(instrument):
 
 def create_features(close_prices, volumes, timestamps):
     features = {}
-    features['SMA_5'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
-    features['SMA_20'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
-    features['Price_Change'] = ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan
-    features['Volatility'] = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
-    features['Volume_Change'] = ((volumes[-1] - volumes[-2]) / volumes[-2]) * 100 if len(volumes) >= 2 else np.nan
-    features['Lag_Close_1'] = close_prices[-2] if len(close_prices) >= 2 else np.nan
-    features['Lag_Volume_1'] = volumes[-2] if len(volumes) >= 2 else np.nan
+    features['ma_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
+    features['ma_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
+    features['ema_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
+    features['ema_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
+    rolling_std = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
+    features['bollinger_upper'] = features['ma_long'] + (2 * rolling_std)
+    features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
+    features['rsi'] = np.mean(close_prices[-14:])  # Simplified RSI calculation for faster execution
+    features['macd'] = np.mean(close_prices[-12:]) - np.mean(close_prices[-26:])  # Simplified MACD
+    features['macd_signal'] = np.mean(close_prices[-9:])  # Simplified Signal Line
+    features['macd_diff'] = features['macd'] - features['macd_signal']
+    features['high_low_diff'] = close_prices[-1] - close_prices[-2] if len(close_prices) >= 2 else np.nan
+    features['open_close_diff'] = close_prices[-1] - close_prices[-2] if len(close_prices) >= 2 else np.nan
 
     features_df = pd.DataFrame([features]).fillna(0)
-    feature_order = [
-        'SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 'Volume_Change',
-        'Lag_Close_1', 'Lag_Volume_1'
-    ]
-    return features_df[feature_order]
+    return features_df[['ma_short', 'ma_long', 'ema_short', 'ema_long', 'bollinger_upper', 'bollinger_lower', 'rsi', 'macd', 'macd_signal', 'macd_diff', 'high_low_diff', 'open_close_diff']]
 
 def calculate_atr(close_prices, high_prices, low_prices, period=14):
     df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
@@ -110,11 +112,11 @@ def get_instrument_precision(instrument):
         "USD_JPY": 3,  # US Dollar / Japanese Yen
         "GBP_USD": 5,  # British Pound / US Dollar
         "AUD_USD": 5,  # Australian Dollar / US Dollar
+        "USD_CAD": 5,  # US Dollar / Canadian Dollar
         "USD_CHF": 5,  # US Dollar / Swiss Franc
         "EUR_JPY": 3,  # Euro / Japanese Yen
         "GBP_JPY": 3,  # British Pound / Japanese Yen
         "EUR_GBP": 5,  # Euro / British Pound
-        "USD_CAD": 5,  # US Dollar / Canadian Dollar
         "NZD_USD": 5   # New Zealand Dollar / US Dollar
     }
     return precision_map.get(instrument, 5)  # Default to 5 if precision is unknown
@@ -174,13 +176,13 @@ def execute_trade(instrument):
         )
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        # Set tighter multipliers for SL and        TP for scalping
-        stop_loss = current_price - atr * 0.1 if prediction == 1 else current_price + atr * 0.1
-        take_profit = current_price + atr * 0.2 if prediction == 1 else current_price - atr * 0.2
+        # Set tighter multipliers for SL and TP for scalping
+        stop_loss = current_price - atr * 0.02 if prediction == 1 else current_price + atr * 0.02
+        take_profit = current_price + atr * 0.05 if prediction == 1 else current_price - atr * 0.05
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
         confidence = get_confidence(features, prediction)
-        if confidence < 80:
+        if confidence < 75:
             return "Confidence too low to execute trade."
 
         side = "buy" if prediction == 1 else "sell"
