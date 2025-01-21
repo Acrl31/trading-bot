@@ -71,10 +71,18 @@ def preprocess_data(df):
     # Balance the dataset
     df_up = df[df['target'] == 1]
     df_down = df[df['target'] == 0]
+    
+    if len(df_up) == 0 or len(df_down) == 0:
+        raise ValueError("One of the classes is missing in the target variable. Check the dataset balance.")
+
     df_balanced = pd.concat([
         resample(df_up, replace=True, n_samples=len(df_down), random_state=RANDOM_STATE),
         df_down
     ])
+
+    # Ensure both classes are present
+    if len(df_balanced['target'].unique()) < 2:
+        raise ValueError("Resampling resulted in only one class. Check the resampling logic.")
 
     # Select features and scale them
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
@@ -95,9 +103,9 @@ def train_model(X, y):
 
     # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=250,  # Higher number for more learning
-        learning_rate=0.05,  # Balanced learning rate
-        max_depth=12,  # Allow deeper trees
+        n_estimators=250,
+        learning_rate=0.05,
+        max_depth=12,
         min_samples_split=3,
         min_samples_leaf=2,
         random_state=RANDOM_STATE
@@ -106,16 +114,30 @@ def train_model(X, y):
     for train_index, test_index in tscv.split(X):
         X_train, X_test = X[train_index], X[test_index]
         y_train, y_test = y[train_index], y[test_index]
+
+        # Check for at least two classes in the training set
+        if len(np.unique(y_train)) < 2:
+            print("Skipping fold due to only one class in the training set.")
+            continue
+
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         fold_accuracy = accuracy_score(y_test, y_pred)
         cv_scores.append(fold_accuracy)
+
+    if len(cv_scores) == 0:
+        raise ValueError("No valid folds during cross-validation. Check data preprocessing and splits.")
 
     # Final evaluation on the entire dataset
     print(f"Cross-Validation Accuracy: {np.mean(cv_scores):.2f} (+/- {np.std(cv_scores):.2f})")
 
     # Train final model
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
+
+    # Check for at least two classes in the training set
+    if len(np.unique(y_train)) < 2 or len(np.unique(y_test)) < 2:
+        raise ValueError("Final train-test split has only one class. Check data preprocessing and splits.")
+
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
@@ -131,7 +153,7 @@ if __name__ == "__main__":
     print("Adding features...")
     data = add_features(data)
     print("Preprocessing data...")
-    X, y, feature_columns = preprocess_data(data)
+    X, y, features = preprocess_data(data)
     print("Training model...")
     trained_model = train_model(X, y)
     print("Model training complete.")
