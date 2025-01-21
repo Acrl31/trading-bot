@@ -1,12 +1,11 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-import matplotlib.pyplot as plt
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -33,18 +32,13 @@ def add_features(df):
     """
     Add technical and statistical features to the data.
     """
-    features = {}  # Dictionary to store feature names and corresponding values
     df['ma_short'] = df['close'].rolling(window=5).mean()
     df['ma_long'] = df['close'].rolling(window=20).mean()
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
-    features['ema_short'] = df['ema_short']
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
-    features['ema_long'] = df['ema_long']
     rolling_std = df['close'].rolling(window=20).std()
     df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
-    features['bollinger_upper'] = df['bollinger_upper']
     df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
-    features['bollinger_lower'] = df['bollinger_lower']
     delta = df['close'].diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
@@ -52,26 +46,24 @@ def add_features(df):
     avg_loss = pd.Series(loss).rolling(window=14).mean()
     rs = avg_gain / (avg_loss + 1e-9)
     df['rsi'] = 100 - (100 / (1 + rs))
-    features['rsi'] = df['rsi']
     ema_12 = df['close'].ewm(span=12, adjust=False).mean()
     ema_26 = df['close'].ewm(span=26, adjust=False).mean()
     df['macd'] = ema_12 - ema_26
-    features['macd'] = df['macd']
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
     df['macd_diff'] = df['macd'] - df['macd_signal']
-    features['macd_diff'] = df['macd_diff']
     df['high_low_diff'] = df['high'] - df['low']
-    features['high_low_diff'] = df['high_low_diff']
     df['open_close_diff'] = df['open'] - df['close']
-    features['open_close_diff'] = df['open_close_diff']
-    return df.dropna(), list(features.keys())
+    return df.dropna()
 
 def preprocess_data(df):
     """
     Preprocess data: target creation, scaling, and balancing.
     """
+    # Convert timestamp to datetime and set as index
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.set_index('timestamp')
+    
+    # Create the target variable
     df['future_price'] = df['close'].shift(-TARGET_LOOKAHEAD)
     df['target'] = (df['future_price'] > df['close']).astype(int)
     df = df.drop(columns=['future_price']).dropna()
@@ -84,7 +76,7 @@ def preprocess_data(df):
         df_down
     ])
 
-    # Standardize features
+    # Select features and scale them
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
     X = df_balanced[feature_columns]
     y = df_balanced['target']
@@ -93,19 +85,19 @@ def preprocess_data(df):
 
     return X_scaled, y
 
-def train_model(X, y, feature_names):
+def train_model(X, y):
     """
     Train a Gradient Boosting model and evaluate its performance.
     """
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-    # Train the model with a set of hyperparameters
+    # Train the model
     model = GradientBoostingClassifier(
         n_estimators=200,
-        max_depth=15,
-        min_samples_split=2,
-        min_samples_leaf=1,
+        max_depth=10,  # Reduced depth for faster training
+        min_samples_split=5,  # Slightly stricter split for generalization
+        min_samples_leaf=3,  # Reduce overfitting with minimum leaf size
         random_state=RANDOM_STATE
     )
     model.fit(X_train, y_train)
@@ -117,32 +109,15 @@ def train_model(X, y, feature_names):
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
-    # Feature importance analysis
-    feature_importance = model.feature_importances_
-
-    # Combine feature names with their importance values
-    feature_importance_data = zip(feature_names, feature_importance)
-    
-    # Sort the features based on importance (highest first)
-    sorted_features = sorted(feature_importance_data, key=lambda x: x[1], reverse=True)
-
-    # Save sorted feature importance to a text file
-    with open("sorted_feature_importance.txt", "w") as f:
-        f.write("Feature Importance (Most Important to Least Important):\n\n")
-        for feature, importance in sorted_features:
-            f.write(f"{feature}: {importance:.4f}\n")
-    
-    print("Feature importance saved to sorted_feature_importance.txt.")
-
     return model
 
 if __name__ == "__main__":
     print("Loading data...")
     data = load_data()
     print("Adding features...")
-    data, feature_names = add_features(data)
+    data = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
     print("Training model...")
-    trained_model = train_model(X, y, feature_names)
+    trained_model = train_model(X, y)
     print("Model training complete.")
