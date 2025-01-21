@@ -36,10 +36,6 @@ def add_features(df):
     features = {}  # Dictionary to store feature names and corresponding values
     df['returns'] = df['close'].pct_change()
     features['returns'] = df['returns']
-    df['volatility'] = df['returns'].rolling(window=10).std()
-    features['volatility'] = df['volatility']
-    df['ma_short'] = df['close'].rolling(window=5).mean()
-    features['ma_short'] = df['ma_short']
     df['ma_long'] = df['close'].rolling(window=20).mean()
     features['ma_long'] = df['ma_long']
     df['ma_diff'] = df['ma_short'] - df['ma_long']
@@ -48,15 +44,11 @@ def add_features(df):
     features['ema_short'] = df['ema_short']
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
     features['ema_long'] = df['ema_long']
-    df['ema_diff'] = df['ema_short'] - df['ema_long']
-    features['ema_diff'] = df['ema_diff']
     rolling_std = df['close'].rolling(window=20).std()
     df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
     features['bollinger_upper'] = df['bollinger_upper']
     df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
     features['bollinger_lower'] = df['bollinger_lower']
-    df['bollinger_bandwidth'] = df['bollinger_upper'] - df['bollinger_lower']
-    features['bollinger_bandwidth'] = df['bollinger_bandwidth']
     delta = df['close'].diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
