@@ -11,7 +11,18 @@ OANDA_API_URL = "https://api-fxpractice.oanda.com/v3"  # Use "https://api-fxtrad
 oanda_client = oandapyV20.API(access_token=API_KEY)
 
 # List of forex pairs and commodities to collect data for
-INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
+INSTRUMENTS = [
+    'EUR_USD',  # Euro / US Dollar
+    'USD_JPY',  # US Dollar / Japanese Yen
+    'GBP_USD',  # British Pound / US Dollar
+    'AUD_USD',  # Australian Dollar / US Dollar
+    'USD_CHF',  # US Dollar / Swiss Franc
+    'EUR_JPY',  # Euro / Japanese Yen
+    'GBP_JPY',  # British Pound / Japanese Yen
+    'EUR_GBP',  # Euro / British Pound
+    'USD_CAD',  # US Dollar / Canadian Dollar
+    'NZD_USD'   # New Zealand Dollar / US Dollar
+]
 
 # Timeframe and granularity for historical data
 GRANULARITY = "H1"  # 1-hour candles
