@@ -26,7 +26,7 @@ INSTRUMENTS = [
 
 # Timeframe and granularity for historical data
 GRANULARITY = "M1"  # 1-hour candles
-START_DATE = (datetime.utcnow() - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+START_DATE = (datetime.utcnow() - timedelta(days=3.47)).strftime("%Y-%m-%dT%H:%M:%SZ")
 END_DATE = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # Directory to save collected data
