@@ -34,13 +34,7 @@ def add_features(df):
     Add technical and statistical features to the data.
     """
     features = {}  # Dictionary to store feature names and corresponding values
-    df['returns'] = df['close'].pct_change()
-    features['returns'] = df['returns']
     df['ma_short'] = df['close'].rolling(window=5).mean()
-    df['ma_long'] = df['close'].rolling(window=20).mean()
-    features['ma_long'] = df['ma_long']
-    df['ma_diff'] = df['ma_short'] - df['ma_long']
-    features['ma_diff'] = df['ma_diff']
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
     features['ema_short'] = df['ema_short']
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -63,7 +57,6 @@ def add_features(df):
     df['macd'] = ema_12 - ema_26
     features['macd'] = df['macd']
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-    features['macd_signal'] = df['macd_signal']
     df['macd_diff'] = df['macd'] - df['macd_signal']
     features['macd_diff'] = df['macd_diff']
     df['high_low_diff'] = df['high'] - df['low']
