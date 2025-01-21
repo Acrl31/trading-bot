@@ -1,151 +1,161 @@
-import os
-import pandas as pd
+import boto3
 import oandapyV20
 import oandapyV20.endpoints.orders as orders
+import oandapyV20.endpoints.account as account
 import joblib
+import pandas as pd
 import numpy as np
-import boto3
 from datetime import datetime
 
-# OANDA API credentials (replace with your own)
-ACCESS_TOKEN = os.getenv("API_KEY")
+# Initialize AWS SNS client
+sns_client = boto3.client('sns', region_name='eu-west-1')
+SNS_TOPIC_ARN = 'arn:aws:sns:eu-west-1:183631325876:ForexSNS'
+
+# Initialize OANDA client
+API_KEY = os.getenv("API_KEY")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID")
-CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
+client = oandapyV20.API(access_token=API_KEY)
 
-# Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
-MODEL = joblib.load('models/trading_model.pkl')
+# Load the pre-trained model
+MODEL_PATH = 'models/trading_model.pkl'
+model = joblib.load(MODEL_PATH)
 
-# List of instruments to trade (same as in your model)
-INSTRUMENTS = ['EUR_USD', 'USD_JPY', 'GBP_USD', 'AUD_USD', 'XAU_USD', 'XAG_USD']
+# Instruments to trade
+INSTRUMENTS = ["EUR_USD", "USD_JPY", "GBP_USD", "AUD_USD", "XAU_USD", "XAG_USD"]
 
-# Risk management parameters
-STOP_LOSS = 0.01  # Stop loss in terms of price change (e.g., 0.01 means 1 pip)
-TAKE_PROFIT = 0.02  # Take profit in terms of price change (e.g., 0.02 means 2 pips)
+# Fetch account balance
+def get_balance():
+    account_details = account.AccountDetails(ACCOUNT_ID)
+    response = client.request(account_details)
+    balance = float(response['account']['balance'])
+    return balance
 
-# AWS SNS client initialization
-sns_client = boto3.client('sns', region_name='eu-west-1')  # Choose the appropriate region for SNS
-
-# Your SNS topic ARN (Amazon Resource Name)
-SNS_TOPIC_ARN = 'arn:aws:sns:eu-west-1:183631325876:ForexSNS:02c146ff-f1bf-4a6f-9ab9-eb45510de19c'  # Replace with your SNS Topic ARN
-
-# Function to get account balance from OANDA
-def get_account_balance():
-    try:
-        response = oandapyV20.endpoints.Account.AccountSummary(ACCOUNT_ID)
-        CLIENT.request(response)
-        balance = float(response.response['account']['balance'])
-        return balance
-    except Exception as e:
-        print(f"Error fetching account balance: {e}")
-        return None
-
-# Function to get the latest market data from OANDA (closing price and volume)
-def get_latest_data(instrument):
+# Calculate ATR manually
+def calculate_atr(instrument, period=14):
     params = {
-        "granularity": "H1",  # 1-hour candles, adjust as needed
-        "count": 1  # Fetch the latest data point
+        "granularity": "M1",
+        "count": period + 1,  # To get enough data for calculation
     }
-    
-    # Request data from OANDA
-    try:
-        response = oandapyV20.endpoints.Instruments.InstrumentsCandles(instrument=instrument, params=params)
-        CLIENT.request(response)
-        candles = response.response['candles']
-        
-        # Extract relevant data (close price and volume)
-        latest_candle = candles[0]
-        close_price = float(latest_candle['mid']['c'])
-        volume = int(latest_candle['volume'])
-        
-        # Return the data as a numpy array for prediction
-        return np.array([close_price, volume]).reshape(1, -1)
-    except Exception as e:
-        print(f"Error fetching data: {e}")
-        return None
+    response = client.request(oandapyV20.endpoints.pricing.PricingInfo(instrument=instrument, params=params))
+    prices = response['prices']
 
-# Function to send SNS notification
-def send_sns_notification(subject, message):
-    try:
-        response = sns_client.publish(
-            TopicArn=SNS_TOPIC_ARN,
-            Subject=subject,
-            Message=message
-        )
-        print(f"SNS notification sent! Message ID: {response['MessageId']}")
-    except Exception as e:
-        print(f"Error sending SNS notification: {e}")
+    high_prices = [float(price['high']) for price in prices]
+    low_prices = [float(price['low']) for price in prices]
+    close_prices = [float(price['closeBid']) for price in prices]
 
-# Function to execute a trade (buy, sell, or hold)
-def execute_trade(action, instrument):
-    # Fetch the latest data for prediction
-    latest_data = get_latest_data(instrument)
-    if latest_data is None:
+    # Calculate the True Range (TR) for each period
+    tr = [max(high_prices[i] - low_prices[i], abs(high_prices[i] - close_prices[i-1]), abs(low_prices[i] - close_prices[i-1])) 
+          for i in range(1, len(prices))]
+
+    # Calculate the ATR as the average of the last 'period' TR values
+    atr = np.mean(tr[-period:])
+    return atr
+
+# Get the latest market data for the instrument
+def get_market_data(instrument):
+    params = {
+        "instruments": instrument,
+    }
+    response = client.request(oandapyV20.endpoints.pricing.PricingInfo(instrument=instrument, params=params))
+    price = response['prices'][0]
+    return {
+        'bid': float(price['closeBid']),
+        'ask': float(price['closeAsk']),
+        'time': price['time'],
+    }
+
+# Prepare data for prediction
+def prepare_data(instrument):
+    # Get historical data for the instrument (this is an example, adjust as needed)
+    params = {
+        "granularity": "M1",
+        "count": 100,  # You can adjust this as needed
+    }
+    response = client.request(oandapyV20.endpoints.pricing.PricingInfo(instrument=instrument, params=params))
+    prices = response['prices']
+
+    # Prepare the necessary features
+    data = pd.DataFrame({
+        'close': [float(price['closeBid']) for price in prices],
+        'high': [float(price['high']) for price in prices],
+        'low': [float(price['low']) for price in prices],
+        'volume': [float(price['volume']) for price in prices],
+    })
+
+    data['SMA_5'] = data['close'].rolling(window=5).mean()
+    data['SMA_20'] = data['close'].rolling(window=20).mean()
+    data['Price_Change'] = data['close'].pct_change()
+    data['Volatility'] = data['high'] - data['low']
+    data['Volume_Change'] = data['volume'].pct_change()
+
+    # Lag features
+    data['Lag_Close_1'] = data['close'].shift(1)
+    data['Lag_Close_2'] = data['close'].shift(2)
+    data['Lag_Volume_1'] = data['volume'].shift(1)
+
+    data.dropna(inplace=True)
+
+    features = data[['SMA_5', 'SMA_20', 'Price_Change', 'Volatility', 'Volume_Change', 'Lag_Close_1', 'Lag_Close_2', 'Lag_Volume_1']]
+    return features
+
+# Execute trade based on the model's prediction
+def execute_trade(instrument):
+    # Get current market data and prepare features
+    market_data = get_market_data(instrument)
+    features = prepare_data(instrument)
+    latest_features = features.iloc[-1].values.reshape(1, -1)
+
+    # Predict using the model
+    prediction = model.predict(latest_features)
+    confidence = model.predict_proba(latest_features)[0][1]  # Confidence of the 'buy' prediction
+
+    # Skip trade if confidence is below the threshold
+    if confidence < 0.7:  # You can adjust this threshold as needed
         return
-    
-    # Get the current account balance
-    capital = get_account_balance()
-    if capital is None:
-        return
 
-    # Calculate trade amount as 1% of current capital
-    trade_amount = capital * 0.01  # 1% of available capital
-    print(f"Available capital: {capital}, Trade amount: {trade_amount}")
-    
-    # Predict the action (buy, sell, or hold)
-    prediction = MODEL.predict(latest_data)
-    print(f"Model predicted action: {prediction[0]}")
+    # Get account balance and calculate trade size (1% of balance)
+    balance = get_balance()
+    trade_value = 0.01 * balance  # 1% of the balance
 
-    trade_type = ""
-    if prediction == 1:  # Buy signal
-        print("Placing Buy Order...")
-        order = orders.OrderCreate(
-            ACCOUNT_ID,
-            data={
-                "order": {
-                    "units": trade_amount,  # Buy order with the calculated amount
-                    "instrument": instrument,
-                    "time_in_force": "GTC",
-                    "type": "MARKET",
-                    "position_fill": "DEFAULT",
-                    "stopLoss": {"price": str(latest_data[0] - STOP_LOSS)},
-                    "takeProfit": {"price": str(latest_data[0] + TAKE_PROFIT)},
-                }
+    # Calculate ATR for SL and TP
+    atr = calculate_atr(instrument)
+    sl = market_data['ask'] - 2 * atr  # Stop loss 2x ATR below ask price
+    tp = market_data['ask'] + 2 * atr  # Take profit 2x ATR above ask price
+
+    # Round SL and TP to 5 decimal places
+    sl = round(sl, 5)
+    tp = round(tp, 5)
+
+    # Place the trade
+    order = orders.OrderCreate(
+        ACCOUNT_ID,
+        data={
+            "order": {
+                "units": trade_value // market_data['ask'],  # Calculate number of units to trade
+                "instrument": instrument,
+                "timeInForce": "FOK",
+                "type": "LIMIT",
+                "price": market_data['ask'],
+                "stopLoss": sl,
+                "takeProfit": tp,
             }
-        )
-        CLIENT.request(order)
-        print("Buy order placed successfully!")
-        trade_type = "BUY"
-    
-    elif prediction == -1:  # Sell signal
-        print("Placing Sell Order...")
-        order = orders.OrderCreate(
-            ACCOUNT_ID,
-            data={
-                "order": {
-                    "units": -trade_amount,  # Sell order with the calculated amount
-                    "instrument": instrument,
-                    "time_in_force": "GTC",
-                    "type": "MARKET",
-                    "position_fill": "DEFAULT",
-                    "stopLoss": {"price": str(latest_data[0] + STOP_LOSS)},
-                    "takeProfit": {"price": str(latest_data[0] - TAKE_PROFIT)},
-                }
-            }
-        )
-        CLIENT.request(order)
-        print("Sell order placed successfully!")
-        trade_type = "SELL"
-    
-    else:
-        print("No action taken. Model predicted 'hold'.")
-        trade_type = "HOLD"
-    
-    # Send SNS notification about the trade
-    subject = f"Trade Executed: {trade_type} - {instrument}"
-    message = f"A {trade_type} order was executed for {instrument}.\n\nTrade Amount: {trade_amount}\nStop Loss: {STOP_LOSS}\nTake Profit: {TAKE_PROFIT}"
-    send_sns_notification(subject, message)
+        }
+    )
+    client.request(order)
 
-# Run the trading script
-if __name__ == "__main__":
+    # Send SNS notification
+    sns_client.publish(
+        TopicArn=SNS_TOPIC_ARN,
+        Message=f"Trade executed for {instrument}.\nType: {'Buy' if prediction == 1 else 'Sell'}\n"
+                f"Units: {trade_value // market_data['ask']}\n"
+                f"SL: {sl}\nTP: {tp}\nConfidence: {confidence}",
+        Subject=f"Trade Notification for {instrument}",
+    )
+
+# Main loop to execute trades for each instrument
+def run_trading_bot():
     for instrument in INSTRUMENTS:
-        execute_trade(action=None, instrument=instrument)
+        execute_trade(instrument)
+
+if __name__ == "__main__":
+    run_trading_bot()
