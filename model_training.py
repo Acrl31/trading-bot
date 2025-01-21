@@ -1,11 +1,12 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
+from sklearn.feature_selection import VarianceThreshold
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -83,7 +84,11 @@ def preprocess_data(df):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    return X_scaled, y
+    # Feature selection: Remove low-variance features
+    selector = VarianceThreshold(threshold=0.01)
+    X_selected = selector.fit_transform(X_scaled)
+
+    return X_selected, y
 
 def train_model(X, y):
     """
@@ -94,10 +99,13 @@ def train_model(X, y):
 
     # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=200,
-        max_depth=10,  # Reduced depth for faster training
-        min_samples_split=5,  # Slightly stricter split for generalization
-        min_samples_leaf=3,  # Reduce overfitting with minimum leaf size
+        n_estimators=150,  # Fewer estimators for faster training
+        learning_rate=0.1,  # Balanced learning rate
+        max_depth=8,  # Reduced depth to prevent overfitting
+        min_samples_split=5,  # Reduce overfitting
+        min_samples_leaf=3,  # Handle smaller splits effectively
+        validation_fraction=0.2,  # 20% for validation during training
+        n_iter_no_change=10,  # Stop early if no improvement
         random_state=RANDOM_STATE
     )
     model.fit(X_train, y_train)
@@ -108,6 +116,10 @@ def train_model(X, y):
     print(f"Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
+
+    # Cross-validation
+    cv_scores = cross_val_score(model, X, y, cv=3)
+    print(f"Cross-Validation Accuracy: {cv_scores.mean():.2f} (+/- {cv_scores.std():.2f})")
 
     return model
 
