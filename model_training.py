@@ -1,12 +1,11 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-from sklearn.feature_selection import VarianceThreshold
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -84,42 +83,45 @@ def preprocess_data(df):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Feature selection: Remove low-variance features
-    selector = VarianceThreshold(threshold=0.01)
-    X_selected = selector.fit_transform(X_scaled)
-
-    return X_selected, y
+    return X_scaled, y, feature_columns
 
 def train_model(X, y):
     """
     Train a Gradient Boosting model and evaluate its performance.
     """
-    # Split into train and test sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
+    # Time-based split
+    tscv = TimeSeriesSplit(n_splits=5)
+    cv_scores = []
 
     # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=150,  # Fewer estimators for faster training
-        learning_rate=0.1,  # Balanced learning rate
-        max_depth=8,  # Reduced depth to prevent overfitting
-        min_samples_split=5,  # Reduce overfitting
-        min_samples_leaf=3,  # Handle smaller splits effectively
-        validation_fraction=0.2,  # 20% for validation during training
-        n_iter_no_change=10,  # Stop early if no improvement
+        n_estimators=250,  # Higher number for more learning
+        learning_rate=0.05,  # Balanced learning rate
+        max_depth=12,  # Allow deeper trees
+        min_samples_split=3,
+        min_samples_leaf=2,
         random_state=RANDOM_STATE
     )
-    model.fit(X_train, y_train)
 
-    # Evaluate the model
+    for train_index, test_index in tscv.split(X):
+        X_train, X_test = X[train_index], X[test_index]
+        y_train, y_test = y[train_index], y[test_index]
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        fold_accuracy = accuracy_score(y_test, y_pred)
+        cv_scores.append(fold_accuracy)
+
+    # Final evaluation on the entire dataset
+    print(f"Cross-Validation Accuracy: {np.mean(cv_scores):.2f} (+/- {np.std(cv_scores):.2f})")
+
+    # Train final model
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
+    model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-    print(f"Accuracy: {accuracy:.2f}")
+    print(f"Final Test Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
-
-    # Cross-validation
-    cv_scores = cross_val_score(model, X, y, cv=3)
-    print(f"Cross-Validation Accuracy: {cv_scores.mean():.2f} (+/- {cv_scores.std():.2f})")
 
     return model
 
@@ -129,7 +131,7 @@ if __name__ == "__main__":
     print("Adding features...")
     data = add_features(data)
     print("Preprocessing data...")
-    X, y = preprocess_data(data)
+    X, y, feature_columns = preprocess_data(data)
     print("Training model...")
     trained_model = train_model(X, y)
     print("Model training complete.")
