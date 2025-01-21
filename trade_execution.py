@@ -88,7 +88,7 @@ def calculate_atr(close_prices, high_prices, low_prices, period=14):
     df['atr'] = df['tr'].ewm(span=period, min_periods=1).mean()
     return df['atr'].iloc[-1]
 
-def get_confidence(prediction):
+def get_confidence(features, prediction):
     try:
         if prediction == 1:
             confidence = MODEL.predict_proba(features)[0][1]
@@ -147,7 +147,7 @@ def execute_trade(instrument):
         stop_loss = round(atr * 2, 5)
         take_profit = round(atr * 4, 5)
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        confidence = get_confidence(prediction)
+        confidence = get_confidence(features, prediction)
         if confidence < 30:
             return "Confidence too low to execute trade."
 
