@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
@@ -95,12 +95,12 @@ def train_model(X, y):
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-    # Train the model
+    # Train the model with a set of hyperparameters
     model = GradientBoostingClassifier(
-        n_estimators=200, 
-        max_depth=15, 
-        min_samples_split=2, 
-        min_samples_leaf=1, 
+        n_estimators=200,
+        max_depth=15,
+        min_samples_split=2,
+        min_samples_leaf=1,
         random_state=RANDOM_STATE
     )
     model.fit(X_train, y_train)
@@ -112,10 +112,6 @@ def train_model(X, y):
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
-    # Cross-validation accuracy
-    cross_val_accuracy = cross_val_score(model, X, y, cv=5, scoring="accuracy")
-    print(f"Cross-Validation Accuracy: {np.mean(cross_val_accuracy):.2f} ± {np.std(cross_val_accuracy):.2f}")
-    
     # Feature importance analysis
     feature_importance = model.feature_importances_
     feature_names = [f"Feature {i}" for i in range(X.shape[1])]
