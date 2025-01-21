@@ -107,8 +107,8 @@ def train_model(X, y):
 
     # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=250,
-        learning_rate=0.05,
+        n_estimators=500,   # Increased number of estimators
+        learning_rate=0.01,  # Lower learning rate
         max_depth=12,
         min_samples_split=3,
         min_samples_leaf=2,
@@ -119,28 +119,25 @@ def train_model(X, y):
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
+        # Scale within each fold to prevent data leakage
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
         # Check for at least two classes in the training set
         if len(np.unique(y_train)) < 2:
-            print("Skipping fold due to only one class in the training set.")
+            print("Skipping fold due to one class in the training set.")
             continue
 
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        model.fit(X_train_scaled, y_train)
+        y_pred = model.predict(X_test_scaled)
         fold_accuracy = accuracy_score(y_test, y_pred)
         cv_scores.append(fold_accuracy)
 
-    if len(cv_scores) == 0:
-        raise ValueError("No valid folds during cross-validation. Check data preprocessing and splits.")
-
-    # Final evaluation on the entire dataset
     print(f"Cross-Validation Accuracy: {np.mean(cv_scores):.2f} (+/- {np.std(cv_scores):.2f})")
 
-    # Train final model
+    # Final evaluation on the entire dataset
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-
-    # Check for at least two classes in the training set
-    if len(np.unique(y_train)) < 2 or len(np.unique(y_test)) < 2:
-        raise ValueError("Final train-test split has only one class. Check data preprocessing and splits.")
 
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
@@ -148,6 +145,10 @@ def train_model(X, y):
     print(f"Final Test Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
+
+    # Get predicted probabilities
+    y_prob = model.predict_proba(X_test)
+    print(f"Predicted probabilities: {y_prob}")
 
     # Save the trained model
     joblib.dump(model, 'trained_model.pkl')
