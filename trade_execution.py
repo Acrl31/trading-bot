@@ -43,7 +43,7 @@ def get_account_balance():
 
 def get_latest_data(instrument):
     try:
-        params = {"granularity": "H1", "count": 100, "price": "M"}
+        params = {"granularity": "M1", "count": 100, "price": "M"}
         request = instruments.InstrumentsCandles(instrument, params=params)
         response = CLIENT.request(request)
         candles = response['candles']
