@@ -65,6 +65,8 @@ def get_latest_data(instrument):
 
 def create_features(open_prices, high_prices, low_prices, close_prices, volumes, timestamps):
     features = {}
+    
+    print("Getting price data.")
 
     # Price Data
     features['open'] = open_prices[-1] if len(open_prices) >= 1 else np.nan
@@ -73,6 +75,7 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['close'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
     features['volume'] = volumes[-1] if len(volumes) >= 1 else np.nan
 
+    print("Getting returns.")
     # Returns
     features['returns'] = ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan
 
@@ -97,6 +100,8 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['bollinger_upper'] = features['ma_long'] + (2 * rolling_std)
     features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
     features['bollinger_bandwidth'] = features['bollinger_upper'] - features['bollinger_lower']
+    
+    print("Getting RSI.")
 
     # RSI (Relative Strength Index)
     delta = np.diff(close_prices[-15:]) if len(close_prices) >= 15 else np.array([np.nan])
@@ -223,7 +228,6 @@ def execute_trade(instrument):
             market_data['volumes'],
             market_data['timestamps']
         )
-        print("Getting prediction.")
         prediction = MODEL.predict(features)        [0] 
         prediction_proba = MODEL.predict_proba(features)[0]  # Probabilities for each class
         print(f"Prediction: {prediction}, Buy Probability: {prediction_proba[1]}, Sell Probability: {prediction_proba[0]}")
