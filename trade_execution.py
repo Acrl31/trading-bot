@@ -199,6 +199,7 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
+        print(response)
         return f"Market {side} order placed for {instrument}.\n"
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
@@ -209,52 +210,40 @@ def execute_trade(instrument):
         balance = get_account_balance()
         if not balance:
             return "Error: Unable to retrieve account balance."
-        print(f"Account balance: {balance}")
-
         trade_amount = balance * 0.01
         market_data = get_latest_data(instrument)
         if not market_data:
-            return f"Error: Unable to fetch market data for {instrument}."
-        
-        print(f"Market data for {instrument}: {market_data}")
+            return "Error: Unable to fetch market data."
 
         features = create_features(
             market_data['close_prices'],
-            market_data['high_prices'],  
-            market_data['low_prices'],   
+            market_data['high_prices'],  # Add high_prices
+            market_data['low_prices'],   # Add low_prices
             market_data['close_prices'],
             market_data['volumes'],
             market_data['timestamps']
         )
-        print(f"Features for {instrument}: {features}")
-
         prediction = MODEL.predict(features)        [0]
-        prediction_proba = MODEL.predict_proba(features)[0]  
+        prediction_proba = MODEL.predict_proba(features)[0]  # Probabilities for each class
         print(f"Prediction: {prediction}, Buy Probability: {prediction_proba[1]}, Sell Probability: {prediction_proba[0]}")
-
         atr = calculate_atr(
             market_data['close_prices'],
             market_data['high_prices'],
             market_data['low_prices']
         )
-        print(f"ATR for {instrument}: {atr}")
 
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
-        # Set tighter multipliers for SL and TP for scalping
+        # Set tighter multipliers for SL and        TP for scalping
         stop_loss = current_price - atr * 0.2 if prediction == 1 else current_price + atr * 0.2
         take_profit = current_price + atr * 0.4 if prediction == 1 else current_price - atr * 0.4
 
         print(f"Instrument: {instrument}, SL: {stop_loss}, TP: {take_profit}, ATR: {atr}")
-        
         confidence = get_confidence(features, prediction)
-        print(f"Confidence: {confidence}%")
-        
         if confidence < 70:
             return "Confidence too low to execute trade.\n"
 
         side = "buy" if prediction == 1 else "sell"
         return execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price)
-
     except Exception as e:
         print(f"Error during trade execution: {e}")
         return "Error during trade execution."
