@@ -1,12 +1,12 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
-from sklearn.utils import compute_class_weight
-import joblib
+from sklearn.utils import resample
+import joblib  # For saving/loading models
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -69,10 +69,26 @@ def preprocess_data(df):
     df['target'] = (df['future_price'] > df['close']).astype(int)
     df = df.drop(columns=['future_price']).dropna()
 
+    # Balance the dataset
+    df_up = df[df['target'] == 1]
+    df_down = df[df['target'] == 0]
+    
+    if len(df_up) == 0 or len(df_down) == 0:
+        raise ValueError("One of the classes is missing in the target variable. Check the dataset balance.")
+
+    df_balanced = pd.concat([
+        resample(df_up, replace=True, n_samples=len(df_down), random_state=RANDOM_STATE),
+        df_down
+    ])
+
+    # Ensure both classes are present
+    if len(df_balanced['target'].unique()) < 2:
+        raise ValueError("Resampling resulted in only one class. Check the resampling logic.")
+
     # Select features and scale them
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
-    X = df[feature_columns]
-    y = df['target']
+    X = df_balanced[feature_columns]
+    y = df_balanced['target']
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
@@ -81,56 +97,61 @@ def preprocess_data(df):
 
     return X_scaled_df, y, feature_columns
 
+from sklearn.model_selection import StratifiedKFold
+
 def train_model(X, y):
     """
-    Train a balanced Gradient Boosting model and ensure class balance.
+    Train a Gradient Boosting model and evaluate its performance.
     """
-    # Split the data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-
-    # Compute class weights
-    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
-    class_weight_dict = {i: weight for i, weight in enumerate(class_weights)}
+    # Use StratifiedKFold for ensuring balanced class distribution in each fold
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+    cv_scores = []
 
     # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=300,
-        learning_rate=0.02,
-        max_depth=8,
-        min_samples_split=5,
-        min_samples_leaf=3,
-        random_state=RANDOM_STATE,
-        subsample=0.8  # Prevent overfitting
+        n_estimators=500,
+        learning_rate=0.01,
+        max_depth=12,
+        min_samples_split=3,
+        min_samples_leaf=2,
+        random_state=RANDOM_STATE
     )
 
-    # Fit with adjusted sample weights
-    sample_weights = [class_weight_dict[c] for c in y_train]
-    model.fit(X_train, y_train, sample_weight=sample_weights)
+    for train_index, test_index in skf.split(X, y):
+        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
-    # Evaluate the model
+        # Scale within each fold to prevent data leakage
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+
+        model.fit(X_train_scaled, y_train)
+        y_pred = model.predict(X_test_scaled)
+        fold_accuracy = accuracy_score(y_test, y_pred)
+        cv_scores.append(fold_accuracy)
+
+    print(f"Cross-Validation Accuracy: {np.mean(cv_scores):.2f} (+/- {np.std(cv_scores):.2f})")
+
+    # Final evaluation on the entire dataset
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
+
+    model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"Final Test Accuracy: {accuracy:.2f}")
+    print("Classification Report:")
+    print(classification_report(y_test, y_pred))
 
-    # Print metrics
-    print("Classification Report (Balanced):")
-    print(classification_report(y_test, y_pred, digits=4))
+    # Get predicted probabilities
+    y_prob = model.predict_proba(X_test)
+    print(f"Predicted probabilities: {y_prob}")
 
-    # Analyze class distribution
-    _, counts = np.unique(y_pred, return_counts=True)
-    print(f"Predicted Class Distribution: {counts}")
-
-    # Save the model
-    joblib.dump(model, 'balanced_model.pkl')
-    print("Balanced model saved to 'balanced_model.pkl'")
+    # Save the trained model
+    joblib.dump(model, 'trained_model.pkl')
+    print("Model saved to 'trained_model.pkl'")
 
     return model
-
-def balanced_predictions(model, X, threshold=0.5):
-    """
-    Make balanced predictions by adjusting the decision threshold.
-    """
-    y_prob = model.predict_proba(X)[:, 1]
-    y_pred = (y_prob >= threshold).astype(int)
-    return y_pred
 
 if __name__ == "__main__":
     print("Loading data...")
@@ -139,6 +160,6 @@ if __name__ == "__main__":
     data = add_features(data)
     print("Preprocessing data...")
     X, y, features = preprocess_data(data)
-    print("Using features:", features)
+    print("Using features:", features)  # Print out all the features being used
     print("Training model...")
     trained_model = train_model(X, y)
