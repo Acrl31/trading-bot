@@ -199,7 +199,6 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
-        print(response)
         return f"Market {side} order placed for {instrument}.\n"
     except oandapyV20.exceptions.V20Error as e:
         print(f"Error executing IOC order: {e}")
@@ -215,6 +214,7 @@ def execute_trade(instrument):
         if not market_data:
             return "Error: Unable to fetch market data."
 
+        print("Creating Features.")
         features = create_features(
             market_data['close_prices'],
             market_data['high_prices'],  # Add high_prices
@@ -223,7 +223,8 @@ def execute_trade(instrument):
             market_data['volumes'],
             market_data['timestamps']
         )
-        prediction = MODEL.predict(features)        [0]
+        print("Getting prediction.")
+        prediction = MODEL.predict(features)        [0] 
         prediction_proba = MODEL.predict_proba(features)[0]  # Probabilities for each class
         print(f"Prediction: {prediction}, Buy Probability: {prediction_proba[1]}, Sell Probability: {prediction_proba[0]}")
         atr = calculate_atr(
@@ -231,7 +232,6 @@ def execute_trade(instrument):
             market_data['high_prices'],
             market_data['low_prices']
         )
-
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         # Set tighter multipliers for SL and        TP for scalping
         stop_loss = current_price - atr * 0.2 if prediction == 1 else current_price + atr * 0.2
