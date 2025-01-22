@@ -175,14 +175,12 @@ def get_instrument_precision(instrument):
 def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, current_price, slippage=0.0005):
     try:
         precision = get_instrument_precision(instrument)
-        
-        # Round trade_amount to the nearest whole number
         rounded_trade_amount = int(round(trade_amount))
-        
         slippage_adjustment = current_price + slippage if side == "buy" else current_price - slippage
         rounded_price = round(slippage_adjustment, precision)
         rounded_stop_loss = round(stop_loss, precision)
         rounded_take_profit = round(take_profit, precision)
+
         print(f"Order Details - Price: {rounded_price}, SL: {rounded_stop_loss}, TP: {rounded_take_profit}, Units: {rounded_trade_amount}")
 
         order_payload = {
@@ -199,10 +197,14 @@ def execute_ioc_order(instrument, side, trade_amount, stop_loss, take_profit, cu
 
         r = orders.OrderCreate(ACCOUNT_ID, data=order_payload)
         response = CLIENT.request(r)
+        print(f"Order Response: {response}")
         return f"Market {side} order placed for {instrument}.\n"
     except oandapyV20.exceptions.V20Error as e:
-        print(f"Error executing IOC order: {e}")
+        print(f"API Error executing order for {instrument}: {e}")
         return f"Error executing order: {e}"
+    except Exception as e:
+        print(f"Unexpected error executing order for {instrument}: {e}")
+        return f"Unexpected error: {e}"
 
 def execute_trade(instrument):
     try:
