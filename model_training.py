@@ -1,12 +1,12 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-import joblib
+import matplotlib.pyplot as plt
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -31,15 +31,32 @@ def load_data():
 
 def add_features(df):
     """
-    Add simplified technical and statistical features to the data.
+    Add technical and statistical features to the data.
     """
+    df['returns'] = df['close'].pct_change()
+    df['volatility'] = df['returns'].rolling(window=10).std()
     df['ma_short'] = df['close'].rolling(window=5).mean()
     df['ma_long'] = df['close'].rolling(window=20).mean()
+    df['ma_diff'] = df['ma_short'] - df['ma_long']
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['ema_diff'] = df['ema_short'] - df['ema_long']
     rolling_std = df['close'].rolling(window=20).std()
     df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
     df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
+    df['bollinger_bandwidth'] = df['bollinger_upper'] - df['bollinger_lower']
+    delta = df['close'].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=14).mean()
+    avg_loss = pd.Series(loss).rolling(window=14).mean()
+    rs = avg_gain / (avg_loss + 1e-9)
+    df['rsi'] = 100 - (100 / (1 + rs))
+    ema_12 = df['close'].ewm(span=12, adjust=False).mean()
+    ema_26 = df['close'].ewm(span=26, adjust=False).mean()
+    df['macd'] = ema_12 - ema_26
+    df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+    df['macd_diff'] = df['macd'] - df['macd_signal']
     df['high_low_diff'] = df['high'] - df['low']
     df['open_close_diff'] = df['open'] - df['close']
     return df.dropna()
@@ -62,43 +79,60 @@ def preprocess_data(df):
         df_down
     ])
 
+    # Standardize features
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
     X = df_balanced[feature_columns]
     y = df_balanced['target']
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
-    X_scaled_df = pd.DataFrame(X_scaled, columns=feature_columns)
 
-    return X_scaled_df, y
+    return X_scaled, y
 
 def train_model(X, y):
     """
     Train a Gradient Boosting model and evaluate its performance.
     """
+    # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-    
-    # Simplified Gradient Boosting with faster parameters
+
+    # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=100,           # Reduced number of estimators
-        learning_rate=0.05,         # Slightly higher learning rate
-        max_depth=6,                # Reduced tree depth
-        subsample=0.8,              # Use a fraction of data per iteration
+        n_estimators=200, 
+        max_depth=15, 
+        min_samples_split=2, 
+        min_samples_leaf=1, 
         random_state=RANDOM_STATE
     )
-    
-    # Train the model
     model.fit(X_train, y_train)
 
     # Evaluate the model
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-    print(f"Test Accuracy: {accuracy:.2f}")
+    print(f"Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
-    # Save the model
-    joblib.dump(model, 'optimized_model.pkl')
-    print("Optimized model saved to 'optimized_model.pkl'")
+    # Cross-validation accuracy
+    cross_val_accuracy = cross_val_score(model, X, y, cv=5, scoring="accuracy")
+    print(f"Cross-Validation Accuracy: {np.mean(cross_val_accuracy):.2f} ± {np.std(cross_val_accuracy):.2f}")
+    
+    # Feature importance analysis
+    feature_importance = model.feature_importances_
+    feature_names = [f"Feature {i}" for i in range(X.shape[1])]
+
+    # Combine feature names with their importance values
+    feature_importance_data = zip(feature_names, feature_importance)
+    
+    # Sort the features based on importance (highest first)
+    sorted_features = sorted(feature_importance_data, key=lambda x: x[1], reverse=True)
+
+    # Save sorted feature importance to a text file
+    with open("sorted_feature_importance.txt", "w") as f:
+        f.write("Feature Importance (Most Important to Least Important):\n\n")
+        for feature, importance in sorted_features:
+            f.write(f"{feature}: {importance:.4f}\n")
+    
+    print("Feature importance saved to sorted_feature_importance.txt.")
 
     return model
 
@@ -111,3 +145,4 @@ if __name__ == "__main__":
     X, y = preprocess_data(data)
     print("Training model...")
     trained_model = train_model(X, y)
+    print("Model training complete.")
