@@ -63,7 +63,7 @@ def get_latest_data(instrument):
         print(f"Error fetching data for {instrument}: {e}")
         return None
 
-def create_features(open_prices, high_prices, low_prices, close_prices, volumes, timestamps):
+def create_features(open_prices, high_prices, low_prices, close_prices, volumes, timestamps, instrument):
     features = {}
     
 
@@ -128,15 +128,13 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['macd_signal'] = macd_signal
     features['macd_diff'] = macd - macd_signal 
 
-    print("getting differences")
-
     # Price Differences
     features['high_low_diff'] = high_prices[-1] - low_prices[-1] if len(high_prices) >= 1 and len(low_prices) >= 1 else np.nan
     features['open_close_diff'] = open_prices[-1] - close_prices[-1] if len(open_prices) >= 1 and len(close_prices) >= 1 else np.nan
 
     # Timestamp and Instrument are placeholders; adjust as needed
     features['timestamp'] = timestamps[-1] if len(timestamps) >= 1 else np.nan
-    features['instrument'] = 'placeholder'
+    features['instrument'] = instrument
 
     # Future Price is assumed shifted by TARGET_LOOKAHEAD; adjust as needed
     features['future_price'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
@@ -239,7 +237,8 @@ def execute_trade(instrument):
             market_data['low_prices'],   # Add low_prices
             market_data['close_prices'],
             market_data['volumes'],
-            market_data['timestamps']
+            market_data['timestamps'],
+            instrument
         )
         prediction = MODEL.predict(features)        [0] 
         prediction_proba = MODEL.predict_proba(features)[0]  # Probabilities for each class
