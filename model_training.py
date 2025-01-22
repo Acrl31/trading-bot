@@ -1,12 +1,12 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-import joblib  # To save the model
+import matplotlib.pyplot as plt
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -15,6 +15,7 @@ DATA_DIR = "data"
 TARGET_LOOKAHEAD = 5  # Number of steps ahead to predict
 TEST_SIZE = 0.2       # Proportion of data for testing
 RANDOM_STATE = 42     # Reproducibility
+FOLDS = 3             # Number of cross-validation folds
 
 def load_data():
     """
@@ -90,77 +91,40 @@ def preprocess_data(df):
 
 def train_model(X, y):
     """
-    Train a Random Forest model and evaluate its performance.
+    Train a Gradient Boosting model and evaluate its performance using cross-validation.
     """
-    # Split into train and test sets
+    # Define cross-validation strategy
+    skf = StratifiedKFold(n_splits=FOLDS, shuffle=True, random_state=RANDOM_STATE)
+    accuracies = []
+
+    for train_index, val_index in skf.split(X, y):
+        X_train, X_val = X[train_index], X[val_index]
+        y_train, y_val = y.iloc[train_index], y.iloc[val_index]  # Updated line for positional indexing
+        model = GradientBoostingClassifier(n_estimators=200, max_depth=15, random_state=RANDOM_STATE)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_val)
+        accuracy = accuracy_score(y_val, y_pred)
+        accuracies.append(accuracy)
+
+    # Print cross-validation results
+    print(f"Cross-Validation Accuracy: {np.mean(accuracies):.2f} ± {np.std(accuracies):.2f}")
+
+    # Train the final model using the full training set
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-
-    # Use Random Forest for potentially better performance
-    model = RandomForestClassifier(
-        n_estimators=200, 
-        max_depth=15, 
-        min_samples_split=2, 
-        min_samples_leaf=1, 
-        random_state=RANDOM_STATE
-    )
     model.fit(X_train, y_train)
-
-    # Save the trained model to a file
-    model_filename = "random_forest_model.pkl"
-    joblib.dump(model, model_filename)
-    print(f"Model saved as {model_filename}")
-
-    # Evaluate the model
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
     print(f"Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
+    # Save the model
+    model_filename = 'final_trained_model.pkl'
+    with open(model_filename, 'wb') as f:
+        pickle.dump(model, f)
+    print(f"Model saved to {model_filename}")
+
     return model
-
-def cross_validate(X, y):
-    """
-    Perform cross-validation using a more powerful model and hyperparameter tuning.
-    """
-    # Using Random Forest for cross-validation
-    model = RandomForestClassifier(
-        n_estimators=50,  # Fewer trees for faster training
-        max_depth=5,       # Shallower trees
-        random_state=RANDOM_STATE
-    )
-
-    # Hyperparameter tuning with GridSearchCV
-    param_grid = {
-        'n_estimators': [100],  # Use only one option for quicker tuning
-        'max_depth': [10],      # Reduced number of hyperparameter options
-        'min_samples_split': [2],
-        'min_samples_leaf': [1]
-    }
-    grid_search = GridSearchCV(model, param_grid, cv=2, n_jobs=-1, verbose=2)  # Reduced to 2 splits
-    grid_search.fit(X, y)
-    best_model = grid_search.best_estimator_
-
-    # Save the best model from cross-validation
-    best_model_filename = "best_random_forest_model.pkl"
-    joblib.dump(best_model, best_model_filename)
-    print(f"Best model saved as {best_model_filename}")
-
-    # Evaluate the model
-    accuracies = []
-    skf = StratifiedKFold(n_splits=2, shuffle=True, random_state=RANDOM_STATE)  # Reduced to 2 splits
-    for train_index, val_index in skf.split(X, y):
-        X_train, X_val = X[train_index], X[val_index]
-        y_train, y_val = y[train_index], y[val_index]
-        best_model.fit(X_train, y_train)
-        y_pred = best_model.predict(X_val)
-        accuracy = accuracy_score(y_val, y_pred)
-        accuracies.append(accuracy)
-
-    avg_accuracy = np.mean(accuracies)
-    print(f"Cross-Validation Accuracy: {avg_accuracy:.2f}")
-    return avg_accuracy
-
 
 if __name__ == "__main__":
     print("Loading data...")
@@ -169,13 +133,6 @@ if __name__ == "__main__":
     data = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
-    
-    # Train the full model and save it
-    print("Training full model...")
+    print("Training model...")
     trained_model = train_model(X, y)
-
-    # Perform cross-validation and save the best model
-    print("Performing cross-validation...")
-    cross_val_accuracy = cross_validate(X, y)
-    
     print("Model training complete.")
