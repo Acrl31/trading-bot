@@ -1,12 +1,12 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-import matplotlib.pyplot as plt
+import joblib  # To save the model
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -79,11 +79,11 @@ def preprocess_data(df):
         df_down
     ])
 
-    # Standardize features using RobustScaler
+    # Standardize features
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
     X = df_balanced[feature_columns]
     y = df_balanced['target']
-    scaler = RobustScaler()
+    scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
     return X_scaled, y
@@ -104,6 +104,11 @@ def train_model(X, y):
         random_state=RANDOM_STATE
     )
     model.fit(X_train, y_train)
+
+    # Save the trained model to a file
+    model_filename = "random_forest_model.pkl"
+    joblib.dump(model, model_filename)
+    print(f"Model saved as {model_filename}")
 
     # Evaluate the model
     y_pred = model.predict(X_test)
@@ -127,18 +132,23 @@ def cross_validate(X, y):
 
     # Hyperparameter tuning with GridSearchCV
     param_grid = {
-        'n_estimators': [100, 200],
-        'max_depth': [10, 15],
-        'min_samples_split': [2, 5],
-        'min_samples_leaf': [1, 2]
+        'n_estimators': [100],  # Use only one option for quicker tuning
+        'max_depth': [10],      # Reduced number of hyperparameter options
+        'min_samples_split': [2],
+        'min_samples_leaf': [1]
     }
-    grid_search = GridSearchCV(model, param_grid, cv=3, n_jobs=-1, verbose=2)
+    grid_search = GridSearchCV(model, param_grid, cv=2, n_jobs=-1, verbose=2)  # Reduced to 2 splits
     grid_search.fit(X, y)
     best_model = grid_search.best_estimator_
 
+    # Save the best model from cross-validation
+    best_model_filename = "best_random_forest_model.pkl"
+    joblib.dump(best_model, best_model_filename)
+    print(f"Best model saved as {best_model_filename}")
+
     # Evaluate the model
     accuracies = []
-    skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
+    skf = StratifiedKFold(n_splits=2, shuffle=True, random_state=RANDOM_STATE)  # Reduced to 2 splits
     for train_index, val_index in skf.split(X, y):
         X_train, X_val = X[train_index], X[val_index]
         y_train, y_val = y[train_index], y[val_index]
@@ -151,6 +161,7 @@ def cross_validate(X, y):
     print(f"Cross-Validation Accuracy: {avg_accuracy:.2f}")
     return avg_accuracy
 
+
 if __name__ == "__main__":
     print("Loading data...")
     data = load_data()
@@ -159,9 +170,12 @@ if __name__ == "__main__":
     print("Preprocessing data...")
     X, y = preprocess_data(data)
     
-    print("Performing cross-validation...")
-    cross_validate(X, y)
-    
+    # Train the full model and save it
     print("Training full model...")
     trained_model = train_model(X, y)
+
+    # Perform cross-validation and save the best model
+    print("Performing cross-validation...")
+    cross_val_accuracy = cross_validate(X, y)
+    
     print("Model training complete.")
