@@ -134,7 +134,7 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
 
     # Timestamp and Instrument are placeholders; adjust as needed
     features['timestamp'] = timestamps[-1] if len(timestamps) >= 1 else np.nan
-    features['instrument'] = instrument
+    features['instrument'] = 0
 
     # Future Price is assumed shifted by TARGET_LOOKAHEAD; adjust as needed
     features['future_price'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
