@@ -34,20 +34,18 @@ def load_data():
 
 def add_features(df):
     """
-    Add technical and statistical features to the data.
+    Add only the specified technical and statistical features to the data.
     """
-    df['returns'] = df['close'].pct_change()
-    df['volatility'] = df['returns'].rolling(window=10).std()
+    # Retaining only the features specified by the user
     df['ma_short'] = df['close'].rolling(window=5).mean()
     df['ma_long'] = df['close'].rolling(window=20).mean()
-    df['ma_diff'] = df['ma_short'] - df['ma_long']
     df['ema_short'] = df['close'].ewm(span=5, adjust=False).mean()
     df['ema_long'] = df['close'].ewm(span=20, adjust=False).mean()
-    df['ema_diff'] = df['ema_short'] - df['ema_long']
+    
     rolling_std = df['close'].rolling(window=20).std()
     df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
     df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
-    df['bollinger_bandwidth'] = df['bollinger_upper'] - df['bollinger_lower']
+    
     delta = df['close'].diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
@@ -55,13 +53,16 @@ def add_features(df):
     avg_loss = pd.Series(loss).rolling(window=14).mean()
     rs = avg_gain / (avg_loss + 1e-9)
     df['rsi'] = 100 - (100 / (1 + rs))
+    
     ema_12 = df['close'].ewm(span=12, adjust=False).mean()
     ema_26 = df['close'].ewm(span=26, adjust=False).mean()
     df['macd'] = ema_12 - ema_26
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
     df['macd_diff'] = df['macd'] - df['macd_signal']
+    
     df['high_low_diff'] = df['high'] - df['low']
     df['open_close_diff'] = df['open'] - df['close']
+    
     return df.dropna()
 
 def preprocess_data(df):
@@ -86,8 +87,11 @@ def preprocess_data(df):
     if SUBSET_MODE:
         df_balanced = df_balanced.sample(n=SUBSET_SIZE, random_state=RANDOM_STATE)
 
-    # Standardize features
-    feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
+    # Standardize features (using only the selected features)
+    feature_columns = ['open', 'high', 'low', 'close', 'volume', 'ma_short', 'ma_long', 
+                       'ema_short', 'ema_long', 'bollinger_upper', 'bollinger_lower', 
+                       'rsi', 'macd', 'macd_signal', 'macd_diff', 'high_low_diff', 'open_close_diff']
+    
     X = df_balanced[feature_columns]
     y = df_balanced['target']
     scaler = StandardScaler()
