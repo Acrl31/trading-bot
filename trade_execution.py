@@ -15,7 +15,7 @@ ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 CLIENT = oandapyV20.API(access_token=ACCESS_TOKEN)
 
 # Load the trained machine learning model (replace 'model.pkl' with your actual model filename)
-MODEL = joblib.load('balanced_model.pkl')
+MODEL = joblib.load('trained_model.pkl')
 
 # List of instruments to trade (same as in your model)
 INSTRUMENTS = [
