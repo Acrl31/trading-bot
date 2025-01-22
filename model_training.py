@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
@@ -12,11 +12,12 @@ import joblib
 DATA_DIR = "data"
 
 # Parameters for training
-TARGET_LOOKAHEAD = 5  # Number of steps ahead to predict
-TEST_SIZE = 0.2       # Proportion of data for testing
-RANDOM_STATE = 42     # Reproducibility
-SUBSET_MODE = False   # Set to True for faster debugging with smaller dataset
-SUBSET_SIZE = 5000    # Size of the subset when SUBSET_MODE is enabled
+TARGET_LOOKAHEAD = 5
+TEST_SIZE = 0.2
+RANDOM_STATE = 42
+N_SPLITS = 2  # Reduced folds for faster cross-validation
+SUBSET_MODE = False  # Set True to use a smaller dataset for quick testing
+SUBSET_SIZE = 5000  # Size of the subset when SUBSET_MODE is True
 
 def load_data():
     """
@@ -27,7 +28,7 @@ def load_data():
         if file.endswith("_data.csv"):
             file_path = os.path.join(DATA_DIR, file)
             df = pd.read_csv(file_path)
-            df['instrument'] = file.split("_")[0]  # Add instrument column
+            df['instrument'] = file.split("_")[0]
             all_data.append(df)
     return pd.concat(all_data, ignore_index=True)
 
@@ -81,6 +82,10 @@ def preprocess_data(df):
         df_down
     ])
 
+    # Optionally reduce dataset size for testing
+    if SUBSET_MODE:
+        df_balanced = df_balanced.sample(n=SUBSET_SIZE, random_state=RANDOM_STATE)
+
     # Standardize features
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
     X = df_balanced[feature_columns]
@@ -90,60 +95,63 @@ def preprocess_data(df):
 
     return X_scaled, y
 
-def cross_validate_model(X, y, folds=3):
+def cross_validate_model(X, y):
     """
-    Perform cross-validation and evaluate the model's performance.
+    Perform cross-validation to evaluate model performance.
     """
-    kf = KFold(n_splits=folds, shuffle=True, random_state=RANDOM_STATE)
-    fold_accuracies = []
-
-    for train_index, val_index in kf.split(X):
+    skf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=RANDOM_STATE)
+    cv_scores = []
+    for train_index, val_index in skf.split(X, y):
         X_train, X_val = X[train_index], X[val_index]
         y_train, y_val = y[train_index], y[val_index]
-
         model = GradientBoostingClassifier(
-            n_estimators=100,  # Lower for faster runtime
-            max_depth=5,
+            n_estimators=100,
+            max_depth=5,  # Reduced complexity for faster cross-validation
+            min_samples_split=5,
+            min_samples_leaf=3,
             random_state=RANDOM_STATE
         )
         model.fit(X_train, y_train)
-        y_pred = model.predict(X_val)
-        accuracy = accuracy_score(y_val, y_pred)
-        fold_accuracies.append(accuracy)
+        val_accuracy = model.score(X_val, y_val)
+        cv_scores.append(val_accuracy)
+    return np.mean(cv_scores), np.std(cv_scores)
 
-    avg_accuracy = np.mean(fold_accuracies)
-    print(f"Cross-Validation Accuracy: {avg_accuracy:.2f} ± {np.std(fold_accuracies):.2f}")
-
-def train_model(X, y):
+def train_and_save_model(X, y):
     """
-    Train the final model on the entire dataset and save it.
+    Train the final model and save it to a file.
     """
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
     model = GradientBoostingClassifier(
         n_estimators=200,
-        max_depth=10,
+        max_depth=7,
+        min_samples_split=5,
+        min_samples_leaf=3,
         random_state=RANDOM_STATE
     )
-    model.fit(X, y)
+    model.fit(X_train, y_train)
 
-    # Save the trained model
+    # Save the model
     joblib.dump(model, "trained_model.pkl")
-    print("Model saved as 'trained_model.pkl'.")
+    print("Model saved as trained_model.pkl")
+
+    # Evaluate on test set
+    y_pred = model.predict(X_test)
+    test_accuracy = accuracy_score(y_test, y_pred)
+    print(f"Accuracy: {test_accuracy:.2f}")
+    print("Classification Report:")
+    print(classification_report(y_test, y_pred))
     return model
 
 if __name__ == "__main__":
     print("Loading data...")
     data = load_data()
-    if SUBSET_MODE:
-        data = data.sample(n=SUBSET_SIZE, random_state=RANDOM_STATE)
     print("Adding features...")
     data = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
-    
-    print("Running cross-validation...")
-    cross_validate_model(X, y)  # Cross-validation occurs first
-    
-    print("Training full model...")
-    trained_model = train_model(X, y)  # Train the final model
-    
-    print("Done.")
+    print("Cross-validating model...")
+    cv_mean, cv_std = cross_validate_model(X, y)
+    print(f"Cross-Validation Accuracy: {cv_mean:.2f} ± {cv_std:.2f}")
+    print("Training and saving final model...")
+    train_and_save_model(X, y)
+    print("Model training complete.")
