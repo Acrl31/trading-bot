@@ -1,12 +1,12 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-import matplotlib.pyplot as plt
+import joblib
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -15,7 +15,8 @@ DATA_DIR = "data"
 TARGET_LOOKAHEAD = 5  # Number of steps ahead to predict
 TEST_SIZE = 0.2       # Proportion of data for testing
 RANDOM_STATE = 42     # Reproducibility
-FOLDS = 3             # Number of cross-validation folds
+SUBSET_MODE = False   # Set to True for faster debugging with smaller dataset
+SUBSET_SIZE = 5000    # Size of the subset when SUBSET_MODE is enabled
 
 def load_data():
     """
@@ -89,50 +90,60 @@ def preprocess_data(df):
 
     return X_scaled, y
 
-def train_model(X, y):
+def cross_validate_model(X, y, folds=3):
     """
-    Train a Gradient Boosting model and evaluate its performance using cross-validation.
+    Perform cross-validation and evaluate the model's performance.
     """
-    # Define cross-validation strategy
-    skf = StratifiedKFold(n_splits=FOLDS, shuffle=True, random_state=RANDOM_STATE)
-    accuracies = []
+    kf = KFold(n_splits=folds, shuffle=True, random_state=RANDOM_STATE)
+    fold_accuracies = []
 
-    for train_index, val_index in skf.split(X, y):
+    for train_index, val_index in kf.split(X):
         X_train, X_val = X[train_index], X[val_index]
-        y_train, y_val = y.iloc[train_index], y.iloc[val_index]  # Updated line for positional indexing
-        model = GradientBoostingClassifier(n_estimators=200, max_depth=15, random_state=RANDOM_STATE)
+        y_train, y_val = y[train_index], y[val_index]
+
+        model = GradientBoostingClassifier(
+            n_estimators=100,  # Lower for faster runtime
+            max_depth=5,
+            random_state=RANDOM_STATE
+        )
         model.fit(X_train, y_train)
         y_pred = model.predict(X_val)
         accuracy = accuracy_score(y_val, y_pred)
-        accuracies.append(accuracy)
+        fold_accuracies.append(accuracy)
 
-    # Print cross-validation results
-    print(f"Cross-Validation Accuracy: {np.mean(accuracies):.2f} ± {np.std(accuracies):.2f}")
+    avg_accuracy = np.mean(fold_accuracies)
+    print(f"Cross-Validation Accuracy: {avg_accuracy:.2f} ± {np.std(fold_accuracies):.2f}")
 
-    # Train the final model using the full training set
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    print(f"Accuracy: {accuracy:.2f}")
-    print("Classification Report:")
-    print(classification_report(y_test, y_pred))
+def train_model(X, y):
+    """
+    Train the final model on the entire dataset and save it.
+    """
+    model = GradientBoostingClassifier(
+        n_estimators=200,
+        max_depth=10,
+        random_state=RANDOM_STATE
+    )
+    model.fit(X, y)
 
-    # Save the model
-    model_filename = 'final_trained_model.pkl'
-    with open(model_filename, 'wb') as f:
-        pickle.dump(model, f)
-    print(f"Model saved to {model_filename}")
-
+    # Save the trained model
+    joblib.dump(model, "trained_model.pkl")
+    print("Model saved as 'trained_model.pkl'.")
     return model
 
 if __name__ == "__main__":
     print("Loading data...")
     data = load_data()
+    if SUBSET_MODE:
+        data = data.sample(n=SUBSET_SIZE, random_state=RANDOM_STATE)
     print("Adding features...")
     data = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
-    print("Training model...")
-    trained_model = train_model(X, y)
-    print("Model training complete.")
+    
+    print("Running cross-validation...")
+    cross_validate_model(X, y)  # Cross-validation occurs first
+    
+    print("Training full model...")
+    trained_model = train_model(X, y)  # Train the final model
+    
+    print("Done.")
