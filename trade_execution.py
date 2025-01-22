@@ -104,9 +104,6 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['bollinger_upper'] = features['ma_long'] + (2 * rolling_std)
     features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
     features['bollinger_bandwidth'] = features['bollinger_upper'] - features['bollinger_lower']
-    
-    print("getting rsi.")
-    
 
     # RSI (Relative Strength Index)
     delta = np.diff(close_prices[-15:]) if len(close_prices) >= 15 else np.array([np.nan])
@@ -116,11 +113,22 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['rsi'] = 100 - (100 / (1 + rs)) if not np.isnan(rs) else np.nan
 
     # MACD (Moving Average Convergence Divergence)
-    macd = pd.Series(close_prices).ewm(span=12, adjust=False).mean()[-1] - pd.Series(close_prices).ewm(span=26, adjust=False).mean()[-1]
-    macd_signal = pd.Series([macd]).ewm(span=9, adjust=False).mean()[-1]
+    # Compute MACD
+    macd_series = pd.Series(close_prices).ewm(span=12, adjust=False).mean() - pd.Series(close_prices).ewm(span=26, adjust=False).mean()
+
+    # Compute MACD Signal
+    macd_signal_series = macd_series.ewm(span=9, adjust=False).mean()
+
+    # Extract last value
+    macd = macd_series.iloc[-1] if len(close_prices) >= 26 else np.nan
+    macd_signal = macd_signal_series.iloc[-1] if len(close_prices) >= 26 else np.nan
+
+    # Store in features
     features['macd'] = macd
     features['macd_signal'] = macd_signal
-    features['macd_diff'] = macd - macd_signal
+    features['macd_diff'] = macd - macd_signal 
+
+    print("getting differences")
 
     # Price Differences
     features['high_low_diff'] = high_prices[-1] - low_prices[-1] if len(high_prices) >= 1 and len(low_prices) >= 1 else np.nan
