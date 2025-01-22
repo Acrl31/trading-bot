@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
@@ -88,6 +88,24 @@ def preprocess_data(df):
 
     return X_scaled, y
 
+def train_with_fast_cross_validation(X, y, n_splits=3):
+    """
+    Perform cross-validation with runtime optimization.
+    """
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
+    
+    # Use a lighter model to speed up training
+    model = GradientBoostingClassifier(
+        n_estimators=50,  # Reduced number of boosting iterations
+        max_depth=5,      # Shallower trees for faster training
+        random_state=RANDOM_STATE
+    )
+    
+    # Use cross_val_score with parallel processing
+    scores = cross_val_score(model, X, y, cv=skf, scoring="accuracy", n_jobs=-1)
+    print(f"Cross-Validation Accuracy: {np.mean(scores):.2f} ± {np.std(scores):.2f}")
+    return scores
+
 def train_model(X, y):
     """
     Train a Gradient Boosting model and evaluate its performance.
@@ -112,28 +130,6 @@ def train_model(X, y):
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
-    # Cross-validation accuracy
-    cross_val_accuracy = cross_val_score(model, X, y, cv=5, scoring="accuracy")
-    print(f"Cross-Validation Accuracy: {np.mean(cross_val_accuracy):.2f} ± {np.std(cross_val_accuracy):.2f}")
-    
-    # Feature importance analysis
-    feature_importance = model.feature_importances_
-    feature_names = [f"Feature {i}" for i in range(X.shape[1])]
-
-    # Combine feature names with their importance values
-    feature_importance_data = zip(feature_names, feature_importance)
-    
-    # Sort the features based on importance (highest first)
-    sorted_features = sorted(feature_importance_data, key=lambda x: x[1], reverse=True)
-
-    # Save sorted feature importance to a text file
-    with open("sorted_feature_importance.txt", "w") as f:
-        f.write("Feature Importance (Most Important to Least Important):\n\n")
-        for feature, importance in sorted_features:
-            f.write(f"{feature}: {importance:.4f}\n")
-    
-    print("Feature importance saved to sorted_feature_importance.txt.")
-
     return model
 
 if __name__ == "__main__":
@@ -143,6 +139,8 @@ if __name__ == "__main__":
     data = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
-    print("Training model...")
+    print("Training model with cross-validation...")
+    train_with_fast_cross_validation(X, y)
+    print("Training full model...")
     trained_model = train_model(X, y)
     print("Model training complete.")
