@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
@@ -88,24 +88,6 @@ def preprocess_data(df):
 
     return X_scaled, y
 
-def train_with_fast_cross_validation(X, y, n_splits=3):
-    """
-    Perform cross-validation with runtime optimization.
-    """
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
-    
-    # Use a lighter model to speed up training
-    model = GradientBoostingClassifier(
-        n_estimators=50,  # Reduced number of boosting iterations
-        max_depth=5,      # Shallower trees for faster training
-        random_state=RANDOM_STATE
-    )
-    
-    # Use cross_val_score with parallel processing
-    scores = cross_val_score(model, X, y, cv=skf, scoring="accuracy", n_jobs=-1)
-    print(f"Cross-Validation Accuracy: {np.mean(scores):.2f} ± {np.std(scores):.2f}")
-    return scores
-
 def train_model(X, y):
     """
     Train a Gradient Boosting model and evaluate its performance.
@@ -132,6 +114,34 @@ def train_model(X, y):
 
     return model
 
+def cross_validate(X, y):
+    """
+    Perform cross-validation using a smaller, simpler model for faster runtime.
+    """
+    # Using a simpler model for cross-validation to reduce runtime
+    model = GradientBoostingClassifier(
+        n_estimators=50,  # Fewer trees for faster training
+        max_depth=5,       # Shallower trees
+        random_state=RANDOM_STATE
+    )
+
+    # StratifiedKFold for balanced splits
+    skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
+    accuracies = []
+
+    for train_index, val_index in skf.split(X, y):
+        X_train, X_val = X[train_index], X[val_index]
+        y_train, y_val = y[train_index], y[val_index]
+
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_val)
+        accuracy = accuracy_score(y_val, y_pred)
+        accuracies.append(accuracy)
+
+    avg_accuracy = np.mean(accuracies)
+    print(f"Cross-Validation Accuracy: {avg_accuracy:.2f}")
+    return avg_accuracy
+
 if __name__ == "__main__":
     print("Loading data...")
     data = load_data()
@@ -139,8 +149,10 @@ if __name__ == "__main__":
     data = add_features(data)
     print("Preprocessing data...")
     X, y = preprocess_data(data)
-    print("Training model with cross-validation...")
-    train_with_fast_cross_validation(X, y)
+    
+    print("Performing cross-validation...")
+    cross_validate(X, y)
+    
     print("Training full model...")
     trained_model = train_model(X, y)
     print("Model training complete.")
