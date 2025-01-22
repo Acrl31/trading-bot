@@ -66,7 +66,6 @@ def get_latest_data(instrument):
 def create_features(open_prices, high_prices, low_prices, close_prices, volumes, timestamps):
     features = {}
     
-    print("Getting price data.")
 
     # Price Data
     features['open'] = open_prices[-1] if len(open_prices) >= 1 else np.nan
@@ -75,7 +74,6 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['close'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
     features['volume'] = volumes[-1] if len(volumes) >= 1 else np.nan
 
-    print("Getting returns.")
     # Returns
     features['returns'] = ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan
 
@@ -87,6 +85,8 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['ma_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
     features['ma_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['ma_diff'] = features['ma_short'] - features['ma_long']
+    
+    print("Getting EMA.")
 
     # Exponential Moving Averages
     ema_short = pd.Series(close_prices).ewm(span=5, adjust=False).mean()[-1] if len(close_prices) >= 5 else np.nan
@@ -101,7 +101,6 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
     features['bollinger_bandwidth'] = features['bollinger_upper'] - features['bollinger_lower']
     
-    print("Getting RSI.")
 
     # RSI (Relative Strength Index)
     delta = np.diff(close_prices[-15:]) if len(close_prices) >= 15 else np.array([np.nan])
