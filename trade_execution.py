@@ -87,7 +87,8 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['ma_diff'] = features['ma_short'] - features['ma_long'] 
 
     # Exponential Moving Averages
-    ema_short = pd.Series(close_prices).ewm(span=5, adjust=False).mean()[-1] if len(close_prices) >= 5 else np.nan
+    ema_short = pd.Series(close_prices).ewm(span=5, adjust=False).mean()
+    ema_short_last = ema_short.iloc[-1] if  len(close_prices) >= 5 else np.nan
     print(ema_short)
     ema_long = pd.Series(close_prices).ewm(span=20, adjust=False).mean()[-1] if len(close_prices) >= 20 else np.nan
     features['ema_short'] = ema_short
