@@ -98,14 +98,14 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['ema_long'] = ema_long_last
     features['ema_diff'] = ema_short_last - ema_long_last
     
-    print ("Getting bollinher")
-    
 
     # Bollinger Bands
     rolling_std = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['bollinger_upper'] = features['ma_long'] + (2 * rolling_std)
     features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
     features['bollinger_bandwidth'] = features['bollinger_upper'] - features['bollinger_lower']
+    
+    print("getting rsi.")
     
 
     # RSI (Relative Strength Index)
