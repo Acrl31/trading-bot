@@ -3,18 +3,18 @@ import os
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
-from sklearn.utils import resample
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.utils import compute_class_weight
 import joblib
 
 # Directory containing data files
 DATA_DIR = "data"
 
-# Parameters
-TARGET_LOOKAHEAD = 5
-TEST_SIZE = 0.2
-RANDOM_STATE = 42
+# Parameters for training
+TARGET_LOOKAHEAD = 5  # Number of steps ahead to predict
+TEST_SIZE = 0.2       # Proportion of data for testing
+RANDOM_STATE = 42     # Reproducibility
 
 def load_data():
     """
@@ -41,10 +41,10 @@ def add_features(df):
     df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
     df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
     delta = df['close'].diff()
-    gain = np.maximum(delta, 0)
-    loss = np.maximum(-delta, 0)
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=14).mean()
+    avg_loss = pd.Series(loss).rolling(window=14).mean()
     rs = avg_gain / (avg_loss + 1e-9)
     df['rsi'] = 100 - (100 / (1 + rs))
     ema_12 = df['close'].ewm(span=12, adjust=False).mean()
@@ -60,53 +60,77 @@ def preprocess_data(df):
     """
     Preprocess data: target creation, scaling, and balancing.
     """
+    # Convert timestamp to datetime and set as index
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.set_index('timestamp')
     
-    # Create target variable
+    # Create the target variable
     df['future_price'] = df['close'].shift(-TARGET_LOOKAHEAD)
     df['target'] = (df['future_price'] > df['close']).astype(int)
     df = df.drop(columns=['future_price']).dropna()
 
-    # Balance dataset
-    df_up = df[df['target'] == 1]
-    df_down = df[df['target'] == 0]
-    df_down = resample(df_down, replace=True, n_samples=len(df_up), random_state=RANDOM_STATE)
-    df_balanced = pd.concat([df_up, df_down])
-
-    # Features and scaling
+    # Select features and scale them
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
-    X = df_balanced[feature_columns]
-    y = df_balanced['target']
+    X = df[feature_columns]
+    y = df['target']
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    return pd.DataFrame(X_scaled, columns=feature_columns), y
+    # Convert to DataFrame to retain feature names
+    X_scaled_df = pd.DataFrame(X_scaled, columns=feature_columns)
+
+    return X_scaled_df, y, feature_columns
 
 def train_model(X, y):
     """
-    Train and save a Gradient Boosting model.
+    Train a balanced Gradient Boosting model and ensure class balance.
     """
+    # Split the data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
+    # Compute class weights
+    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+    class_weight_dict = {i: weight for i, weight in enumerate(class_weights)}
+
+    # Train the model
     model = GradientBoostingClassifier(
-        n_estimators=200,  # Reduced for faster training
-        learning_rate=0.05,
-        max_depth=6,       # Reduced to prevent overfitting and speed up
+        n_estimators=300,
+        learning_rate=0.02,
+        max_depth=8,
         min_samples_split=5,
         min_samples_leaf=3,
-        random_state=RANDOM_STATE
+        random_state=RANDOM_STATE,
+        subsample=0.8  # Prevent overfitting
     )
 
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    print(f"Test Accuracy: {accuracy_score(y_test, y_pred):.2f}")
-    print("Classification Report:")
-    print(classification_report(y_test, y_pred))
+    # Fit with adjusted sample weights
+    sample_weights = [class_weight_dict[c] for c in y_train]
+    model.fit(X_train, y_train, sample_weight=sample_weights)
 
-    joblib.dump(model, 'trained_model.pkl')
-    print("Model saved to 'trained_model.pkl'")
+    # Evaluate the model
+    y_pred = model.predict(X_test)
+
+    # Print metrics
+    print("Classification Report (Balanced):")
+    print(classification_report(y_test, y_pred, digits=4))
+
+    # Analyze class distribution
+    _, counts = np.unique(y_pred, return_counts=True)
+    print(f"Predicted Class Distribution: {counts}")
+
+    # Save the model
+    joblib.dump(model, 'balanced_model.pkl')
+    print("Balanced model saved to 'balanced_model.pkl'")
+
     return model
+
+def balanced_predictions(model, X, threshold=0.5):
+    """
+    Make balanced predictions by adjusting the decision threshold.
+    """
+    y_prob = model.predict_proba(X)[:, 1]
+    y_pred = (y_prob >= threshold).astype(int)
+    return y_pred
 
 if __name__ == "__main__":
     print("Loading data...")
@@ -114,6 +138,7 @@ if __name__ == "__main__":
     print("Adding features...")
     data = add_features(data)
     print("Preprocessing data...")
-    X, y = preprocess_data(data)
+    X, y, features = preprocess_data(data)
+    print("Using features:", features)
     print("Training model...")
     trained_model = train_model(X, y)
