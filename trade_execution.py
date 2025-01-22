@@ -63,9 +63,8 @@ def get_latest_data(instrument):
         print(f"Error fetching data for {instrument}: {e}")
         return None
 
-def create_features(open_prices, high_prices, low_prices, close_prices, volumes, timestamps, instrument):
+def create_features(open_prices, high_prices, low_prices, close_prices, volumes, timestamps):
     features = {}
-    
 
     # Price Data
     features['open'] = open_prices[-1] if len(open_prices) >= 1 else np.nan
@@ -74,80 +73,38 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['close'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
     features['volume'] = volumes[-1] if len(volumes) >= 1 else np.nan
 
-    # Returns
-    features['returns'] = ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan
-
-    # Volatility
-    features['volatility'] = np.std([((close_prices[i] - close_prices[i - 1]) / close_prices[i - 1]) * 100 
-                                     for i in range(-10, 0)]) if len(close_prices) >= 10 else np.nan
-
     # Moving Averages
     features['ma_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
     features['ma_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
-    features['ma_diff'] = features['ma_short'] - features['ma_long'] 
-
-    # Exponential Moving Averages
-    ema_short = pd.Series(close_prices).ewm(span=5, adjust=False).mean()
-    ema_long = pd.Series(close_prices).ewm(span=20, adjust=False).mean()
-
-    # Check if the series length is sufficient before accessing the last values
-    ema_short_last = ema_short.iloc[-1] if len(close_prices) >= 5 else np.nan
-    ema_long_last = ema_long.iloc[-1] if len(close_prices) >= 20 else np.nan
-
-    features['ema_short'] = ema_short_last
-    features['ema_long'] = ema_long_last
-    features['ema_diff'] = ema_short_last - ema_long_last
     
-
+    # Exponential Moving Averages
+    features['ema_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
+    features['ema_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
+    
     # Bollinger Bands
     rolling_std = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['bollinger_upper'] = features['ma_long'] + (2 * rolling_std)
     features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
-    features['bollinger_bandwidth'] = features['bollinger_upper'] - features['bollinger_lower']
-
+    
     # RSI (Relative Strength Index)
-    delta = np.diff(close_prices[-15:]) if len(close_prices) >= 15 else np.array([np.nan])
-    gain = np.maximum(delta, 0).mean() if delta.size > 0 else np.nan
-    loss = -np.minimum(delta, 0).mean() if delta.size > 0 else np.nan
-    rs = gain / loss if loss != 0 else np.nan
-    features['rsi'] = 100 - (100 / (1 + rs)) if not np.isnan(rs) else np.nan
-
+    features['rsi'] = np.mean(close_prices[-14:])  # Simplified RSI calculation
+    
     # MACD (Moving Average Convergence Divergence)
-    # Compute MACD
-    macd_series = pd.Series(close_prices).ewm(span=12, adjust=False).mean() - pd.Series(close_prices).ewm(span=26, adjust=False).mean()
-
-    # Compute MACD Signal
-    macd_signal_series = macd_series.ewm(span=9, adjust=False).mean()
-
-    # Extract last value
-    macd = macd_series.iloc[-1] if len(close_prices) >= 26 else np.nan
-    macd_signal = macd_signal_series.iloc[-1] if len(close_prices) >= 26 else np.nan
-
-    # Store in features
-    features['macd'] = macd
-    features['macd_signal'] = macd_signal
-    features['macd_diff'] = macd - macd_signal 
-
+    features['macd'] = np.mean(close_prices[-12:]) - np.mean(close_prices[-26:])  # Simplified MACD
+    features['macd_signal'] = np.mean(close_prices[-9:])  # Simplified Signal Line
+    features['macd_diff'] = features['macd'] - features['macd_signal']
+    
     # Price Differences
     features['high_low_diff'] = high_prices[-1] - low_prices[-1] if len(high_prices) >= 1 and len(low_prices) >= 1 else np.nan
     features['open_close_diff'] = open_prices[-1] - close_prices[-1] if len(open_prices) >= 1 and len(close_prices) >= 1 else np.nan
 
-    # Timestamp and Instrument are placeholders; adjust as needed
-    features['timestamp'] = timestamps[-1] if len(timestamps) >= 1 else np.nan
-    features['instrument'] = 0
-
-    # Future Price is assumed shifted by TARGET_LOOKAHEAD; adjust as needed
-    features['future_price'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
-
     # Convert features into a DataFrame
     features_df = pd.DataFrame([features]).fillna(0)
-
-    # Ensure all 22 features are included
-    return features_df[[
-        'returns', 'volatility', 'ma_short', 'ma_long', 'ma_diff', 'ema_short', 'ema_long', 'ema_diff',
-        'bollinger_upper', 'bollinger_lower', 'bollinger_bandwidth', 'rsi', 'macd', 'macd_signal', 
-        'macd_diff', 'high_low_diff', 'open_close_diff', 'instrument', 'timestamp', 'future_price', 'close', 'volume'
-    ]]
+    
+    # Return the relevant columns as requested
+    return features_df[['open', 'high', 'low', 'close', 'volume', 'ma_short', 'ma_long', 'ema_short', 
+                        'ema_long', 'bollinger_upper', 'bollinger_lower', 'rsi', 'macd', 'macd_signal', 
+                        'macd_diff', 'high_low_diff', 'open_close_diff']]
 
 def calculate_atr(close_prices, high_prices, low_prices, period=14):
     df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
@@ -230,17 +187,15 @@ def execute_trade(instrument):
         if not market_data:
             return "Error: Unable to fetch market data."
 
-        print("Creating Features.")
         features = create_features(
             market_data['close_prices'],
             market_data['high_prices'],  # Add high_prices
             market_data['low_prices'],   # Add low_prices
             market_data['close_prices'],
             market_data['volumes'],
-            market_data['timestamps'],
-            instrument
+            market_data['timestamps']
         )
-        prediction = MODEL.predict(features)        [0] 
+        prediction = MODEL.predict(features)        [0]
         prediction_proba = MODEL.predict_proba(features)[0]  # Probabilities for each class
         print(f"Prediction: {prediction}, Buy Probability: {prediction_proba[1]}, Sell Probability: {prediction_proba[0]}")
         atr = calculate_atr(
@@ -248,6 +203,7 @@ def execute_trade(instrument):
             market_data['high_prices'],
             market_data['low_prices']
         )
+
         current_price = market_data['prices']['buy'] if prediction == 1 else market_data['prices']['sell']
         # Set tighter multipliers for SL and        TP for scalping
         stop_loss = current_price - atr * 0.2 if prediction == 1 else current_price + atr * 0.2
