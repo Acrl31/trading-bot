@@ -1,12 +1,12 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, TimeSeriesSplit
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
-import joblib  # For saving/loading models
+import joblib
 
 # Directory containing data files
 DATA_DIR = "data"
@@ -31,7 +31,7 @@ def load_data():
 
 def add_features(df):
     """
-    Add technical and statistical features to the data.
+    Add simplified technical and statistical features to the data.
     """
     df['ma_short'] = df['close'].rolling(window=5).mean()
     df['ma_long'] = df['close'].rolling(window=20).mean()
@@ -40,18 +40,6 @@ def add_features(df):
     rolling_std = df['close'].rolling(window=20).std()
     df['bollinger_upper'] = df['ma_long'] + (2 * rolling_std)
     df['bollinger_lower'] = df['ma_long'] - (2 * rolling_std)
-    delta = df['close'].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(window=14).mean()
-    avg_loss = pd.Series(loss).rolling(window=14).mean()
-    rs = avg_gain / (avg_loss + 1e-9)
-    df['rsi'] = 100 - (100 / (1 + rs))
-    ema_12 = df['close'].ewm(span=12, adjust=False).mean()
-    ema_26 = df['close'].ewm(span=26, adjust=False).mean()
-    df['macd'] = ema_12 - ema_26
-    df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-    df['macd_diff'] = df['macd'] - df['macd_signal']
     df['high_low_diff'] = df['high'] - df['low']
     df['open_close_diff'] = df['open'] - df['close']
     return df.dropna()
@@ -60,11 +48,8 @@ def preprocess_data(df):
     """
     Preprocess data: target creation, scaling, and balancing.
     """
-    # Convert timestamp to datetime and set as index
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.set_index('timestamp')
-    
-    # Create the target variable
     df['future_price'] = df['close'].shift(-TARGET_LOOKAHEAD)
     df['target'] = (df['future_price'] > df['close']).astype(int)
     df = df.drop(columns=['future_price']).dropna()
@@ -72,84 +57,48 @@ def preprocess_data(df):
     # Balance the dataset
     df_up = df[df['target'] == 1]
     df_down = df[df['target'] == 0]
-    
-    if len(df_up) == 0 or len(df_down) == 0:
-        raise ValueError("One of the classes is missing in the target variable. Check the dataset balance.")
-
     df_balanced = pd.concat([
         resample(df_up, replace=True, n_samples=len(df_down), random_state=RANDOM_STATE),
         df_down
     ])
 
-    # Ensure both classes are present
-    if len(df_balanced['target'].unique()) < 2:
-        raise ValueError("Resampling resulted in only one class. Check the resampling logic.")
-
-    # Select features and scale them
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
     X = df_balanced[feature_columns]
     y = df_balanced['target']
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
-
-    # Convert to DataFrame to retain feature names
     X_scaled_df = pd.DataFrame(X_scaled, columns=feature_columns)
 
-    return X_scaled_df, y, feature_columns
-
-from sklearn.model_selection import StratifiedKFold
+    return X_scaled_df, y
 
 def train_model(X, y):
     """
     Train a Gradient Boosting model and evaluate its performance.
     """
-    # Use StratifiedKFold for ensuring balanced class distribution in each fold
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
-    cv_scores = []
-
-    # Train the model
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
+    
+    # Simplified Gradient Boosting with faster parameters
     model = GradientBoostingClassifier(
-        n_estimators=500,
-        learning_rate=0.01,
-        max_depth=12,
-        min_samples_split=3,
-        min_samples_leaf=2,
+        n_estimators=100,           # Reduced number of estimators
+        learning_rate=0.05,         # Slightly higher learning rate
+        max_depth=6,                # Reduced tree depth
+        subsample=0.8,              # Use a fraction of data per iteration
         random_state=RANDOM_STATE
     )
-
-    for train_index, test_index in skf.split(X, y):
-        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-
-        # Scale within each fold to prevent data leakage
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
-
-        model.fit(X_train_scaled, y_train)
-        y_pred = model.predict(X_test_scaled)
-        fold_accuracy = accuracy_score(y_test, y_pred)
-        cv_scores.append(fold_accuracy)
-
-    print(f"Cross-Validation Accuracy: {np.mean(cv_scores):.2f} (+/- {np.std(cv_scores):.2f})")
-
-    # Final evaluation on the entire dataset
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-
+    
+    # Train the model
     model.fit(X_train, y_train)
+
+    # Evaluate the model
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-    print(f"Final Test Accuracy: {accuracy:.2f}")
+    print(f"Test Accuracy: {accuracy:.2f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
-    # Get predicted probabilities
-    y_prob = model.predict_proba(X_test)
-    print(f"Predicted probabilities: {y_prob}")
-
-    # Save the trained model
-    joblib.dump(model, 'trained_model.pkl')
-    print("Model saved to 'trained_model.pkl'")
+    # Save the model
+    joblib.dump(model, 'optimized_model.pkl')
+    print("Optimized model saved to 'optimized_model.pkl'")
 
     return model
 
@@ -159,7 +108,6 @@ if __name__ == "__main__":
     print("Adding features...")
     data = add_features(data)
     print("Preprocessing data...")
-    X, y, features = preprocess_data(data)
-    print("Using features:", features)  # Print out all the features being used
+    X, y = preprocess_data(data)
     print("Training model...")
     trained_model = train_model(X, y)
