@@ -1,10 +1,10 @@
 import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.utils import resample
 import matplotlib.pyplot as plt
 
@@ -79,24 +79,24 @@ def preprocess_data(df):
         df_down
     ])
 
-    # Standardize features
+    # Standardize features using RobustScaler
     feature_columns = [col for col in df.columns if col not in ['target', 'instrument']]
     X = df_balanced[feature_columns]
     y = df_balanced['target']
-    scaler = StandardScaler()
+    scaler = RobustScaler()
     X_scaled = scaler.fit_transform(X)
 
     return X_scaled, y
 
 def train_model(X, y):
     """
-    Train a Gradient Boosting model and evaluate its performance.
+    Train a Random Forest model and evaluate its performance.
     """
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-    # Train the model
-    model = GradientBoostingClassifier(
+    # Use Random Forest for potentially better performance
+    model = RandomForestClassifier(
         n_estimators=200, 
         max_depth=15, 
         min_samples_split=2, 
@@ -116,25 +116,34 @@ def train_model(X, y):
 
 def cross_validate(X, y):
     """
-    Perform cross-validation using a smaller, simpler model for faster runtime.
+    Perform cross-validation using a more powerful model and hyperparameter tuning.
     """
-    # Using a simpler model for cross-validation to reduce runtime
-    model = GradientBoostingClassifier(
+    # Using Random Forest for cross-validation
+    model = RandomForestClassifier(
         n_estimators=50,  # Fewer trees for faster training
         max_depth=5,       # Shallower trees
         random_state=RANDOM_STATE
     )
 
-    # StratifiedKFold for balanced splits
-    skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
-    accuracies = []
+    # Hyperparameter tuning with GridSearchCV
+    param_grid = {
+        'n_estimators': [100, 200],
+        'max_depth': [10, 15],
+        'min_samples_split': [2, 5],
+        'min_samples_leaf': [1, 2]
+    }
+    grid_search = GridSearchCV(model, param_grid, cv=3, n_jobs=-1, verbose=2)
+    grid_search.fit(X, y)
+    best_model = grid_search.best_estimator_
 
+    # Evaluate the model
+    accuracies = []
+    skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
     for train_index, val_index in skf.split(X, y):
         X_train, X_val = X[train_index], X[val_index]
         y_train, y_val = y[train_index], y[val_index]
-
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_val)
+        best_model.fit(X_train, y_train)
+        y_pred = best_model.predict(X_val)
         accuracy = accuracy_score(y_val, y_pred)
         accuracies.append(accuracy)
 
