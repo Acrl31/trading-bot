@@ -73,38 +73,65 @@ def create_features(open_prices, high_prices, low_prices, close_prices, volumes,
     features['close'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
     features['volume'] = volumes[-1] if len(volumes) >= 1 else np.nan
 
+    # Returns
+    features['returns'] = ((close_prices[-1] - close_prices[-2]) / close_prices[-2]) * 100 if len(close_prices) >= 2 else np.nan
+
+    # Volatility
+    features['volatility'] = np.std([((close_prices[i] - close_prices[i - 1]) / close_prices[i - 1]) * 100 
+                                     for i in range(-10, 0)]) if len(close_prices) >= 10 else np.nan
+
     # Moving Averages
     features['ma_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
     features['ma_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
-    
+    features['ma_diff'] = features['ma_short'] - features['ma_long']
+
     # Exponential Moving Averages
-    features['ema_short'] = np.mean(close_prices[-5:]) if len(close_prices) >= 5 else np.nan
-    features['ema_long'] = np.mean(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
-    
+    ema_short = pd.Series(close_prices).ewm(span=5, adjust=False).mean()[-1] if len(close_prices) >= 5 else np.nan
+    ema_long = pd.Series(close_prices).ewm(span=20, adjust=False).mean()[-1] if len(close_prices) >= 20 else np.nan
+    features['ema_short'] = ema_short
+    features['ema_long'] = ema_long
+    features['ema_diff'] = ema_short - ema_long
+
     # Bollinger Bands
     rolling_std = np.std(close_prices[-20:]) if len(close_prices) >= 20 else np.nan
     features['bollinger_upper'] = features['ma_long'] + (2 * rolling_std)
     features['bollinger_lower'] = features['ma_long'] - (2 * rolling_std)
-    
+    features['bollinger_bandwidth'] = features['bollinger_upper'] - features['bollinger_lower']
+
     # RSI (Relative Strength Index)
-    features['rsi'] = np.mean(close_prices[-14:])  # Simplified RSI calculation
-    
+    delta = np.diff(close_prices[-15:]) if len(close_prices) >= 15 else np.array([np.nan])
+    gain = np.maximum(delta, 0).mean() if delta.size > 0 else np.nan
+    loss = -np.minimum(delta, 0).mean() if delta.size > 0 else np.nan
+    rs = gain / loss if loss != 0 else np.nan
+    features['rsi'] = 100 - (100 / (1 + rs)) if not np.isnan(rs) else np.nan
+
     # MACD (Moving Average Convergence Divergence)
-    features['macd'] = np.mean(close_prices[-12:]) - np.mean(close_prices[-26:])  # Simplified MACD
-    features['macd_signal'] = np.mean(close_prices[-9:])  # Simplified Signal Line
-    features['macd_diff'] = features['macd'] - features['macd_signal']
-    
+    macd = pd.Series(close_prices).ewm(span=12, adjust=False).mean()[-1] - pd.Series(close_prices).ewm(span=26, adjust=False).mean()[-1]
+    macd_signal = pd.Series([macd]).ewm(span=9, adjust=False).mean()[-1]
+    features['macd'] = macd
+    features['macd_signal'] = macd_signal
+    features['macd_diff'] = macd - macd_signal
+
     # Price Differences
     features['high_low_diff'] = high_prices[-1] - low_prices[-1] if len(high_prices) >= 1 and len(low_prices) >= 1 else np.nan
     features['open_close_diff'] = open_prices[-1] - close_prices[-1] if len(open_prices) >= 1 and len(close_prices) >= 1 else np.nan
 
+    # Timestamp and Instrument are placeholders; adjust as needed
+    features['timestamp'] = timestamps[-1] if len(timestamps) >= 1 else np.nan
+    features['instrument'] = 'placeholder'
+
+    # Future Price is assumed shifted by TARGET_LOOKAHEAD; adjust as needed
+    features['future_price'] = close_prices[-1] if len(close_prices) >= 1 else np.nan
+
     # Convert features into a DataFrame
     features_df = pd.DataFrame([features]).fillna(0)
-    
-    # Return the relevant columns as requested
-    return features_df[['open', 'high', 'low', 'close', 'volume', 'ma_short', 'ma_long', 'ema_short', 
-                        'ema_long', 'bollinger_upper', 'bollinger_lower', 'rsi', 'macd', 'macd_signal', 
-                        'macd_diff', 'high_low_diff', 'open_close_diff']]
+
+    # Ensure all 22 features are included
+    return features_df[[
+        'returns', 'volatility', 'ma_short', 'ma_long', 'ma_diff', 'ema_short', 'ema_long', 'ema_diff',
+        'bollinger_upper', 'bollinger_lower', 'bollinger_bandwidth', 'rsi', 'macd', 'macd_signal', 
+        'macd_diff', 'high_low_diff', 'open_close_diff', 'instrument', 'timestamp', 'future_price', 'close', 'volume'
+    ]]
 
 def calculate_atr(close_prices, high_prices, low_prices, period=14):
     df = pd.DataFrame({'high': high_prices, 'low': low_prices, 'close': close_prices})
